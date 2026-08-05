@@ -19,6 +19,7 @@ macOS menu bar приложение — графический фронтенд 
 - [Режим TUN](#режим-tun)
 - [Режим SOCKS5](#режим-socks5)
 - [Профили](#профили)
+- [Выбор маршрута](#выбор-маршрута)
 - [Подписки](#подписки)
 - [Маршрутизация по приложениям (App Routing)](#маршрутизация-по-приложениям-app-routing)
 - [Практическая настройка: ChatGPT, Claude, VS Code](#практическая-настройка)
@@ -54,6 +55,7 @@ YurecClient
 │   ├── ConfigTransformer        — трансформация конфига под режим SOCKS5
 │   ├── AppRoutingStore          — хранение списков приложений для маршрутизации
 │   ├── AppRoutingEntry          — модель одного приложения в списке маршрутизации
+│   ├── RouteSelectorStore       — обнаружение и сохранение selector-маршрутов
 │   ├── ConnectionMode           — enum: .tun / .socks5(port:)
 │   ├── SudoersManager           — управление правилом /etc/sudoers.d/yurec
 │   └── LaunchAtLoginManager     — управление автозапуском через ServiceManagement
@@ -226,6 +228,25 @@ ProxyManager.stop()
 - **SOCKS5 Port** — порт (по умолчанию 2080)
 - **App Routing override** — собственный список приложений вместо глобального
 - **Subscription** — URL подписки (отображается, если профиль создан из подписки) + кнопка **Update**
+
+---
+
+## Выбор маршрута
+
+Если активный sing-box профиль содержит outbound с `"type": "selector"`, в меню
+приложения автоматически появляется пункт **Route**. Список вариантов, их порядок
+и названия берутся из `outbounds` этого selector — клиент не содержит жёстко
+заданных стран, провайдеров или серверов.
+
+- выбор сохраняется отдельно для каждого профиля и selector tag;
+- исходный JSON профиля не изменяется: выбранный `default` записывается только во
+  временный runtime-конфиг;
+- при переключении во время активного соединения sing-box перезапускается в том же
+  режиме;
+- если обновление подписки удалило выбранный вариант, клиент безопасно возвращается
+  к `default` из нового конфига или к первому доступному варианту;
+- для профилей с несколькими selector outbound меню показывает отдельное подменю
+  для каждого tag.
 
 ---
 
@@ -473,6 +494,7 @@ YurecClient/
 │   ├── ConfigTransformer.swift      — трансформация конфига для SOCKS5
 │   ├── AppRoutingEntry.swift        — модель приложения, авто-сбор хелпер-процессов
 │   ├── AppRoutingStore.swift        — двухуровневое хранилище глобал/профиль
+│   ├── RouteSelectorStore.swift      — selector outbound: парсинг, выбор и fallback
 │   ├── SudoersManager.swift         — установка /etc/sudoers.d/yurec
 │   └── LaunchAtLoginManager.swift   — SMAppService обёртка
 ├── Helpers/
@@ -488,4 +510,10 @@ YurecClient/
         ├── GeneralTabView.swift         — Launch at Login, бинарник, App Routing (глобал)
         ├── ProfilesTabView.swift        — список профилей, SOCKS5 порт, App Routing (профиль), подписки
         └── AppRoutingListView.swift     — переиспользуемый список с +/- тулбаром
+```
+
+Проверка логики selector outbound без запуска GUI:
+
+```bash
+scripts/test-route-selector.sh
 ```

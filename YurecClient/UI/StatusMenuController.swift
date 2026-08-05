@@ -1,6 +1,18 @@
 import AppKit
 import Combine
 
+private final class RouteSelectionMenuValue: NSObject {
+    let profileURL: URL
+    let selectorTag: String
+    let option: String
+
+    init(profileURL: URL, selectorTag: String, option: String) {
+        self.profileURL = profileURL
+        self.selectorTag = selectorTag
+        self.option = option
+    }
+}
+
 class StatusMenuController: NSObject {
     private let statusItem: NSStatusItem
     private var cancellables = Set<AnyCancellable>()
@@ -166,6 +178,30 @@ class StatusMenuController: NSObject {
         profilesItem.submenu = profilesSubmenu
         menu.addItem(profilesItem)
 
+        // Route selector(s), discovered from standard sing-box selector outbounds.
+        if let profile = profileManager.activeProfile {
+            let selectors = RouteSelectorStore.shared.selectors(for: profile.path)
+            if !selectors.isEmpty {
+                let routesItem = NSMenuItem(title: "Route", action: nil, keyEquivalent: "")
+                let routesSubmenu = NSMenu(title: "Route")
+
+                if selectors.count == 1, let selector = selectors.first {
+                    addRouteOptions(selector, profile: profile, to: routesSubmenu)
+                } else {
+                    for selector in selectors {
+                        let selectorItem = NSMenuItem(title: selector.tag, action: nil, keyEquivalent: "")
+                        let selectorSubmenu = NSMenu(title: selector.tag)
+                        addRouteOptions(selector, profile: profile, to: selectorSubmenu)
+                        selectorItem.submenu = selectorSubmenu
+                        routesSubmenu.addItem(selectorItem)
+                    }
+                }
+
+                routesItem.submenu = routesSubmenu
+                menu.addItem(routesItem)
+            }
+        }
+
         menu.addItem(.separator())
 
         // Connection status label
@@ -242,6 +278,29 @@ class StatusMenuController: NSObject {
         statusItem.menu = menu
     }
 
+    private func addRouteOptions(
+        _ selector: RouteSelectorDescriptor,
+        profile: Profile,
+        to menu: NSMenu
+    ) {
+        let selected = RouteSelectorStore.shared.selectedOption(for: selector, profileURL: profile.path)
+        for option in selector.options {
+            let item = NSMenuItem(
+                title: option,
+                action: #selector(selectRoute(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = RouteSelectionMenuValue(
+                profileURL: profile.path,
+                selectorTag: selector.tag,
+                option: option
+            )
+            item.state = option == selected ? .on : .off
+            menu.addItem(item)
+        }
+    }
+
     // MARK: - Actions
 
     @objc private func selectProfile(_ sender: NSMenuItem) {
@@ -254,6 +313,36 @@ class StatusMenuController: NSObject {
             let port = profileManager.socks5Port(for: profile)
             let mode2: ConnectionMode = (mode == .tun) ? .tun : .socks5(port: port)
             beginConnect(to: mode2, profile: profile)
+        }
+    }
+
+    @objc private func selectRoute(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? RouteSelectionMenuValue,
+              let profile = profileManager.activeProfile,
+              profile.path.standardizedFileURL == value.profileURL.standardizedFileURL else {
+            return
+        }
+
+        let selectors = RouteSelectorStore.shared.selectors(for: profile.path)
+        guard let selector = selectors.first(where: { $0.tag == value.selectorTag }),
+              selector.options.contains(value.option),
+              RouteSelectorStore.shared.selectedOption(for: selector, profileURL: profile.path) != value.option else {
+            return
+        }
+
+        RouteSelectorStore.shared.setSelectedOption(
+            value.option,
+            selectorTag: value.selectorTag,
+            profileURL: profile.path
+        )
+
+        let previousMode = proxyManager.currentMode
+        if proxyManager.isRunning {
+            proxyManager.stop()
+        }
+        buildMenu()
+        if let mode = previousMode {
+            beginConnect(to: mode, profile: profile)
         }
     }
 

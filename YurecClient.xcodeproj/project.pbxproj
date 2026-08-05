@@ -32,6 +32,7 @@
 		AA0001000000000000000002 /* ServiceManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0002000000000000000002 /* ServiceManagement.framework */; };
 		AA0001000000000000000003 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0002000000000000000003 /* Security.framework */; };
 		AA0001000000000000000004 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0002000000000000000004 /* IOKit.framework */; };
+		AB0001000000000000000001 /* RouteSelectorStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0002000000000000000001 /* RouteSelectorStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -62,6 +63,7 @@
 		AA0002000000000000000002 /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
 		AA0002000000000000000003 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		AA0002000000000000000004 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
+		AB0002000000000000000001 /* RouteSelectorStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteSelectorStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -133,6 +135,7 @@
 				CC0002000000000000000003 /* SubscriptionParser.swift */,
 				EE0002000000000000000001 /* AppRoutingEntry.swift */,
 				EE0002000000000000000002 /* AppRoutingStore.swift */,
+				AB0002000000000000000001 /* RouteSelectorStore.swift */,
 			);
 			path = Managers;
 			sourceTree = "<group>";
@@ -258,6 +261,7 @@
 				EE0001000000000000000002 /* AppRoutingStore.swift in Sources */,
 				EE0001000000000000000003 /* AppRoutingListView.swift in Sources */,
 				FF0001000000000000000001 /* SystemProxyHelper.swift in Sources */,
+				AB0001000000000000000001 /* RouteSelectorStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

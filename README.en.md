@@ -19,6 +19,7 @@ A macOS menu bar application — a graphical front-end for [sing-box](https://si
 - [TUN Mode](#tun-mode)
 - [SOCKS5 Mode](#socks5-mode)
 - [Profiles](#profiles)
+- [Route Selection](#route-selection)
 - [Subscriptions](#subscriptions)
 - [App Routing](#app-routing)
 - [Practical Setup: ChatGPT, Claude, VS Code](#practical-setup)
@@ -53,6 +54,7 @@ YurecClient
 │   ├── ConfigTransformer        — config transformation for SOCKS5 mode
 │   ├── AppRoutingStore          — storage of per-app routing lists
 │   ├── AppRoutingEntry          — model for a single app in the routing list
+│   ├── RouteSelectorStore       — discovery and persistence of selector routes
 │   ├── ConnectionMode           — enum: .tun / .socks5(port:)
 │   ├── SudoersManager           — manages the /etc/sudoers.d/yurec rule
 │   └── LaunchAtLoginManager     — launch-at-login via ServiceManagement
@@ -225,6 +227,23 @@ A standard sing-box JSON with:
 - **SOCKS5 Port** — port for SOCKS5 mode (default 2080)
 - **App Routing override** — flag and a profile-specific app list that replaces the global one
 - **Subscription** — the subscription URL (shown for subscription-based profiles) and an **Update** button
+
+---
+
+## Route Selection
+
+When the active sing-box profile contains an outbound with `"type": "selector"`,
+the application menu automatically shows a **Route** item. Labels, ordering, and
+available choices come from that selector's `outbounds`; the client has no hardcoded
+countries, providers, or servers.
+
+- choices are stored separately for every profile and selector tag;
+- the downloaded profile is never edited: the selected `default` is applied only to
+  a temporary runtime config;
+- changing a route while connected restarts sing-box in the same mode;
+- if a subscription update removes the saved choice, the client safely falls back
+  to the new config's `default` or its first available option;
+- profiles with multiple selector outbounds get a nested submenu for each tag.
 
 ---
 
@@ -471,6 +490,7 @@ YurecClient/
 │   ├── ConfigTransformer.swift      — config transformation for SOCKS5
 │   ├── AppRoutingEntry.swift        — app model, auto-detection of helper processes
 │   ├── AppRoutingStore.swift        — two-tier global/per-profile storage
+│   ├── RouteSelectorStore.swift      — selector outbound parsing, choice, and fallback
 │   ├── SudoersManager.swift         — install /etc/sudoers.d/yurec
 │   └── LaunchAtLoginManager.swift   — SMAppService wrapper
 ├── Helpers/
@@ -486,4 +506,10 @@ YurecClient/
         ├── GeneralTabView.swift         — Launch at Login, binary path, App Routing (global)
         ├── ProfilesTabView.swift        — profile list, SOCKS5 port, App Routing (per-profile), subscriptions
         └── AppRoutingListView.swift     — reusable list with +/- toolbar
+```
+
+Run the selector-outbound logic tests without launching the GUI:
+
+```bash
+scripts/test-route-selector.sh
 ```

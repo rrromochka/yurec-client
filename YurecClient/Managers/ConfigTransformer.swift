@@ -29,13 +29,20 @@ enum ConfigTransformer {
         }
     }
 
-    static func makeSocks5Config(from profilePath: String, port: Int, routedProcessNames: [String] = []) throws -> URL {
+    static func makeSocks5Config(
+        from profilePath: String,
+        port: Int,
+        routedProcessNames: [String] = [],
+        selectorDefaults: [String: String] = [:]
+    ) throws -> URL {
         guard let data = FileManager.default.contents(atPath: profilePath) else {
             throw Error.unreadable
         }
         guard var config = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw Error.invalidJSON
         }
+
+        RouteSelectorConfig.apply(defaults: selectorDefaults, to: &config)
 
         let hybridTun = !routedProcessNames.isEmpty
 
@@ -168,7 +175,10 @@ enum ConfigTransformer {
     /// removed in sing-box 1.13.0 (`sniff`, `sniff_override_destination`, `domain_strategy`,
     /// `udp_timeout`). Returns the path to a sanitized temp file, or `nil` if the profile is
     /// already clean (so the caller can use the original file directly).
-    static func makeTunConfig(from profilePath: String) throws -> URL? {
+    static func makeTunConfig(
+        from profilePath: String,
+        selectorDefaults: [String: String] = [:]
+    ) throws -> URL? {
         guard let data = FileManager.default.contents(atPath: profilePath) else {
             throw Error.unreadable
         }
@@ -176,12 +186,18 @@ enum ConfigTransformer {
             throw Error.invalidJSON
         }
 
+        let selectorsChanged = RouteSelectorConfig.apply(defaults: selectorDefaults, to: &config)
         let inbounds = (config["inbounds"] as? [[String: Any]]) ?? []
         let sanitized = inbounds.map { Self.sanitizeTunInbound($0) }
-        guard !zip(inbounds, sanitized).allSatisfy({ NSDictionary(dictionary: $0.0).isEqual(to: $0.1) }) else {
+        let inboundsChanged = !zip(inbounds, sanitized).allSatisfy {
+            NSDictionary(dictionary: $0.0).isEqual(to: $0.1)
+        }
+        guard selectorsChanged || inboundsChanged else {
             return nil  // nothing to change — use original file
         }
-        config["inbounds"] = sanitized
+        if inboundsChanged {
+            config["inbounds"] = sanitized
+        }
 
         let out = FileManager.default.temporaryDirectory
             .appendingPathComponent("yurec-tun-\(UUID().uuidString).json")
