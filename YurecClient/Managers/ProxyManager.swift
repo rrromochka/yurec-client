@@ -109,12 +109,17 @@ class ProxyManager: ObservableObject {
 
         // Resolve the actual config path
         let configPath: String
+        let profileURL = URL(fileURLWithPath: profilePath)
+        let selectorDefaults = RouteSelectorStore.shared.resolvedDefaults(for: profileURL)
         switch mode {
         case .tun:
             // Strip legacy sing-box < 1.13 inbound fields (sniff, sniff_override_destination, …)
             // if present. socks-in inbound is kept so Telegram and other apps configured to use
             // the local SOCKS proxy continue to work in TUN mode.
-            if let sanitizedURL = try? ConfigTransformer.makeTunConfig(from: profilePath) {
+            if let sanitizedURL = try? ConfigTransformer.makeTunConfig(
+                from: profilePath,
+                selectorDefaults: selectorDefaults
+            ) {
                 tempConfigURL = sanitizedURL
                 configPath = sanitizedURL.path
             } else {
@@ -130,7 +135,12 @@ class ProxyManager: ObservableObject {
             }
             let activeProfile = ProfileManager.shared.profiles.first { $0.path.path == profilePath }
             let routedNames = AppRoutingStore.shared.effectiveProcessNames(for: activeProfile)
-            guard let tmpURL = try? ConfigTransformer.makeSocks5Config(from: profilePath, port: port, routedProcessNames: routedNames) else {
+            guard let tmpURL = try? ConfigTransformer.makeSocks5Config(
+                from: profilePath,
+                port: port,
+                routedProcessNames: routedNames,
+                selectorDefaults: selectorDefaults
+            ) else {
                 print("[YurecClient] start: failed to transform config for SOCKS5")
                 return
             }
