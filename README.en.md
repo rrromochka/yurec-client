@@ -1,4 +1,12 @@
-# YurecClient
+# Cambodgia build of YurecClient
+
+> A friendly downstream of
+> [YurecClient](https://github.com/kirbex/yurec-client), maintained with the
+> original author's permission. This build is supported by the Cambodgia
+> maintainers, not by the upstream author. Synchronization and contribution
+> rules are documented in [UPSTREAM.md](UPSTREAM.md).
+
+The source code is distributed under the [MIT License](LICENSE).
 
 A macOS menu bar application — a graphical front-end for [sing-box](https://sing-box.sagernet.org/). Lets you start sing-box in two modes (TUN and SOCKS5) with a single click from the status bar, manage configuration profiles, and configure per-process traffic routing.
 
