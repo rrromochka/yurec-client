@@ -4,7 +4,7 @@ import Darwin
 
 /// Sets and resets DNS servers for all enabled network services.
 /// Uses `sudo -n /usr/sbin/networksetup` (allowed without a password via
-/// the sudoers rule installed by SudoersManager).
+/// an already installed legacy upstream rule probed by SudoersManager).
 enum DNSHelper {
 
     /// Returns true if at least one physical (non-TUN, non-loopback) interface
@@ -44,7 +44,7 @@ enum DNSHelper {
 
     /// Iterates over every enabled network service, passing its display name to block.
     private static func forEachEnabledService(_ block: (String) -> Void) {
-        guard let prefs = SCPreferencesCreate(nil, "YurecClient" as CFString, nil),
+        guard let prefs = SCPreferencesCreate(nil, ProductIdentity.displayName as CFString, nil),
               let services = SCNetworkServiceCopyAll(prefs) as? [SCNetworkService] else {
             print("[DNSHelper] failed to enumerate network services")
             return

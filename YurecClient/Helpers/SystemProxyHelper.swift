@@ -6,8 +6,9 @@ import Foundation
 /// respect the macOS proxy settings (browsers, Electron apps, URLSession-based apps)
 /// automatically route their traffic through sing-box without manual configuration.
 ///
-/// `/usr/sbin/networksetup` is already included in the sudoers rule installed by
-/// SudoersManager, so `sudo -n` works without a password dialog.
+/// During local development, `/usr/sbin/networksetup` may be covered by an
+/// already installed upstream rule. Cambodgia build only probes that access;
+/// the public release must use the constrained privileged helper.
 enum SystemProxyHelper {
 
     private static let networksetup = "/usr/sbin/networksetup"
@@ -16,7 +17,7 @@ enum SystemProxyHelper {
 
     static func enableSOCKS5(port: Int) {
         let services = activeServices()
-        print("[YurecClient] SystemProxyHelper: enabling SOCKS5 proxy port \(port) on: \(services)")
+        print("\(ProductIdentity.logPrefix) SystemProxyHelper: enabling SOCKS5 proxy port \(port) on: \(services)")
         for svc in services {
             run(["-setsocksfirewallproxy", svc, "127.0.0.1", "\(port)"])
             run(["-setsocksfirewallproxystate", svc, "on"])
@@ -25,7 +26,7 @@ enum SystemProxyHelper {
 
     static func disableSOCKS5() {
         let services = activeServices()
-        print("[YurecClient] SystemProxyHelper: disabling SOCKS5 proxy on: \(services)")
+        print("\(ProductIdentity.logPrefix) SystemProxyHelper: disabling SOCKS5 proxy on: \(services)")
         for svc in services {
             run(["-setsocksfirewallproxystate", svc, "off"])
         }

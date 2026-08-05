@@ -33,6 +33,7 @@
 		AA0001000000000000000003 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0002000000000000000003 /* Security.framework */; };
 		AA0001000000000000000004 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0002000000000000000004 /* IOKit.framework */; };
 		AB0001000000000000000001 /* RouteSelectorStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0002000000000000000001 /* RouteSelectorStore.swift */; };
+		AC0001000000000000000001 /* ProductIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0002000000000000000001 /* ProductIdentity.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -58,12 +59,13 @@
 		EE0002000000000000000002 /* AppRoutingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRoutingStore.swift; sourceTree = "<group>"; };
 		EE0002000000000000000003 /* AppRoutingListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRoutingListView.swift; sourceTree = "<group>"; };
 		FF0002000000000000000001 /* SystemProxyHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemProxyHelper.swift; sourceTree = "<group>"; };
-		6321F2F75A3744469F6183E0 /* YurecClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = YurecClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6321F2F75A3744469F6183E0 /* Cambodgia YurecClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Cambodgia YurecClient.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0002000000000000000001 /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
 		AA0002000000000000000002 /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
 		AA0002000000000000000003 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		AA0002000000000000000004 /* IOKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = IOKit.framework; path = System/Library/Frameworks/IOKit.framework; sourceTree = SDKROOT; };
 		AB0002000000000000000001 /* RouteSelectorStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteSelectorStore.swift; sourceTree = "<group>"; };
+		AC0002000000000000000001 /* ProductIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductIdentity.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -97,7 +99,7 @@
 		6B71C8CD00AF4264BF602598 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				6321F2F75A3744469F6183E0 /* YurecClient.app */,
+				6321F2F75A3744469F6183E0 /* Cambodgia YurecClient.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -118,6 +120,7 @@
 			children = (
 				332DD56DA3744BEF87EA1AE5 /* YurecClientApp.swift */,
 				0B75D95D4682480DAFEC5F52 /* AppDelegate.swift */,
+				AC0002000000000000000001 /* ProductIdentity.swift */,
 				01C2AC0CB0814B128DAB356C /* Info.plist */,
 			);
 			path = App;
@@ -189,7 +192,7 @@
 			);
 			name = YurecClient;
 			productName = YurecClient;
-			productReference = 6321F2F75A3744469F6183E0 /* YurecClient.app */;
+			productReference = 6321F2F75A3744469F6183E0 /* Cambodgia YurecClient.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -262,6 +265,7 @@
 				EE0001000000000000000003 /* AppRoutingListView.swift in Sources */,
 				FF0001000000000000000001 /* SystemProxyHelper.swift in Sources */,
 				AB0001000000000000000001 /* RouteSelectorStore.swift in Sources */,
+				AC0001000000000000000001 /* ProductIdentity.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -400,8 +404,8 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.2.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.yurecclient.app;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = "ru.rom-gorodnichev.cambodgia.yurecclient";
+				PRODUCT_NAME = "Cambodgia YurecClient";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
@@ -427,8 +431,8 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.2.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.yurecclient.app;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = "ru.rom-gorodnichev.cambodgia.yurecclient";
+				PRODUCT_NAME = "Cambodgia YurecClient";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;

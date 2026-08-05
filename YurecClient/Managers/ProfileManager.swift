@@ -25,8 +25,7 @@ class ProfileManager: ObservableObject {
     private var fsEventStream: FSEventStreamRef?
 
     private init() {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        profilesDir = home.appendingPathComponent(".singbox/profiles")
+        profilesDir = ProductIdentity.profilesDirectory()
         createProfilesDirIfNeeded()
         loadProfiles()
         restoreActiveProfile()
@@ -36,7 +35,7 @@ class ProfileManager: ObservableObject {
     // MARK: - Directory Setup
 
     private func createProfilesDirIfNeeded() {
-        try? FileManager.default.createDirectory(at: profilesDir, withIntermediateDirectories: true)
+        try? ProfileImporter.preparePrivateDirectory(at: profilesDir)
     }
 
     // MARK: - Profile Loading
@@ -91,11 +90,33 @@ class ProfileManager: ObservableObject {
     // MARK: - Profile CRUD
 
     func addProfile(from sourceURL: URL) throws {
+        do {
+            try ProfileImporter.validateProfile(at: sourceURL)
+        } catch {
+            throw ProfileError.invalidProfile
+        }
         let destination = profilesDir.appendingPathComponent(sourceURL.lastPathComponent)
         if FileManager.default.fileExists(atPath: destination.path) {
             throw ProfileError.alreadyExists
         }
-        try FileManager.default.copyItem(at: sourceURL, to: destination)
+        do {
+            try FileManager.default.copyItem(at: sourceURL, to: destination)
+            try ProfileImporter.secureProfile(at: destination)
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
+    }
+
+    /// Copies upstream YurecClient profile snapshots into downstream storage.
+    /// Source files and upstream settings are never modified or removed.
+    func importUpstreamProfiles() throws -> ProfileImportSummary {
+        let summary = try ProfileImporter.importProfiles(
+            from: ProductIdentity.upstreamProfilesDirectory(),
+            to: profilesDir
+        )
+        loadProfiles()
+        return summary
     }
 
     func removeProfile(_ profile: Profile) throws {
@@ -110,7 +131,13 @@ class ProfileManager: ObservableObject {
             throw ProfileError.alreadyExists
         }
         let template = emptyProfileTemplate()
-        try template.write(to: destination, atomically: true, encoding: .utf8)
+        do {
+            try template.write(to: destination, atomically: true, encoding: .utf8)
+            try ProfileImporter.secureProfile(at: destination)
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
     }
 
     func openInEditor(_ profile: Profile) {
@@ -144,7 +171,13 @@ class ProfileManager: ObservableObject {
         }
         let raw = try await fetchData(from: subscriptionURL)
         let configData = try SubscriptionParser.buildSingboxConfig(from: raw)
-        try configData.write(to: destination, options: .atomic)
+        do {
+            try configData.write(to: destination, options: .atomic)
+            try ProfileImporter.secureProfile(at: destination)
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
         let profile = Profile(path: destination)
         setSubscriptionURL(subscriptionURL, for: profile)
     }
@@ -156,6 +189,7 @@ class ProfileManager: ObservableObject {
         let raw = try await fetchData(from: url)
         let configData = try SubscriptionParser.buildSingboxConfig(from: raw)
         try configData.write(to: profile.path, options: .atomic)
+        try ProfileImporter.secureProfile(at: profile.path)
     }
 
     private func fetchData(from url: URL) async throws -> Data {
@@ -166,7 +200,7 @@ class ProfileManager: ObservableObject {
         request.setValue("macOS",                                            forHTTPHeaderField: "x-device-os")
         request.setValue(Self.osVersion(),                                   forHTTPHeaderField: "x-ver-os")
         request.setValue(Self.deviceModel(),                                 forHTTPHeaderField: "x-device-model")
-        request.setValue("YurecClient/1.0 (macOS; \(Self.osVersion()))",     forHTTPHeaderField: "User-Agent")
+        request.setValue("CambodgiaYurecClient/1.0 (macOS; \(Self.osVersion()))", forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -291,12 +325,14 @@ enum ProfileError: LocalizedError {
     case alreadyExists
     case downloadFailed
     case noSubscriptionURL
+    case invalidProfile
 
     var errorDescription: String? {
         switch self {
         case .alreadyExists: return "A profile with that name already exists."
         case .downloadFailed: return "Failed to download profile from the subscription URL."
         case .noSubscriptionURL: return "This profile has no subscription URL."
+        case .invalidProfile: return "The selected profile is not a valid sing-box JSON object."
         }
     }
 }

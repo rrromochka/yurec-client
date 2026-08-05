@@ -10,6 +10,8 @@ struct ProfilesTabView: View {
     @State private var refreshingProfileID: UUID?
     @State private var errorMessage: String?
     @State private var showError = false
+    @State private var importResultMessage = ""
+    @State private var showImportResult = false
     @State private var socks5PortText: String = ""
     // Per-profile app routing state
     @State private var profileOverride: Bool = false
@@ -43,6 +45,7 @@ struct ProfilesTabView: View {
             HStack(spacing: 8) {
                 Button("Add...") { pickFile() }
                 Button("Add from URL...") { showAddSubscriptionSheet = true }
+                Button("Import Yurec Profiles...") { importUpstreamProfiles() }
                 Button("Remove") { removeSelected() }.disabled(selectedProfileID == nil)
                 Button("Open in Editor") { openSelected() }.disabled(selectedProfileID == nil)
                 Spacer()
@@ -62,6 +65,11 @@ struct ProfilesTabView: View {
         .alert("Error", isPresented: $showError, presenting: errorMessage) { _ in
             Button("OK") {}
         } message: { msg in Text(msg) }
+        .alert("Yurec Profiles Import", isPresented: $showImportResult) {
+            Button("OK") {}
+        } message: {
+            Text(importResultMessage)
+        }
     }
 
     // MARK: - Per-profile settings panel
@@ -241,6 +249,18 @@ struct ProfilesTabView: View {
             try profileManager.removeProfile(profile)
             selectedProfileID = nil
         } catch { present(error) }
+    }
+
+    private func importUpstreamProfiles() {
+        do {
+            let summary = try profileManager.importUpstreamProfiles()
+            importResultMessage = "Imported \(summary.imported) profile(s). "
+                + "Skipped \(summary.skippedExisting) existing profile(s). "
+                + "The original YurecClient files were not changed."
+            showImportResult = true
+        } catch {
+            present(error)
+        }
     }
 
     private func openSelected() {

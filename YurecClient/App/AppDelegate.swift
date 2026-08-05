@@ -7,26 +7,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        print("[YurecClient] applicationDidFinishLaunching: start")
+        print("\(ProductIdentity.logPrefix) applicationDidFinishLaunching: start")
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        print("[YurecClient] statusItem created")
+        print("\(ProductIdentity.logPrefix) statusItem created")
 
-        print("[YurecClient] building StatusMenuController...")
+        print("\(ProductIdentity.logPrefix) building StatusMenuController...")
         menuController = StatusMenuController(statusItem: statusItem)
-        print("[YurecClient] StatusMenuController ready")
+        print("\(ProductIdentity.logPrefix) StatusMenuController ready")
 
-        print("[YurecClient] detecting existing process...")
+        print("\(ProductIdentity.logPrefix) detecting existing process...")
         ProxyManager.shared.detectExistingProcess()
-        print("[YurecClient] detectExistingProcess dispatched")
+        print("\(ProductIdentity.logPrefix) detectExistingProcess completed")
 
         if !ProxyManager.shared.isRunning,
            UserDefaults.standard.bool(forKey: "autoConnectOnLaunch"),
            let profile = ProfileManager.shared.activeProfile {
-            ProxyManager.shared.start(profilePath: profile.path.path)
+            _ = ProxyManager.shared.start(profilePath: profile.path.path)
         }
 
-        print("[YurecClient] applicationDidFinishLaunching: done")
+        print("\(ProductIdentity.logPrefix) applicationDidFinishLaunching: done")
     }
 
     func applicationWillTerminate(_ notification: Notification) {

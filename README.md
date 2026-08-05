@@ -15,6 +15,7 @@ macOS menu bar приложение — графический фронтенд 
 ## Содержание
 
 - [Требования](#требования)
+- [Изоляция downstream-сборки](#изоляция-downstream-сборки)
 - [Архитектура](#архитектура)
 - [Режим TUN](#режим-tun)
 - [Режим SOCKS5](#режим-socks5)
@@ -41,6 +42,33 @@ macOS menu bar приложение — графический фронтенд 
   - Рекомендуется актуальная стабильная версия (на данный момент 1.13.x)
 - Xcode 15+ для сборки
 
+## Изоляция downstream-сборки
+
+`Cambodgia YurecClient` устанавливается рядом с upstream YurecClient и не
+использует его пользовательское состояние:
+
+- bundle ID: `ru.rom-gorodnichev.cambodgia.yurecclient`;
+- профили: `~/Library/Application Support/Cambodgia YurecClient/Profiles/`;
+- логи: `~/Library/Logs/Cambodgia YurecClient/`;
+- настройки: отдельный домен `UserDefaults`, определяемый bundle ID;
+- временные конфиги: отдельный префикс `cambodgia-yurecclient-*` и права `0600`.
+
+Кнопка **Import Yurec Profiles...** явно копирует валидные JSON-профили из
+`~/.singbox/profiles/`. Исходные файлы не изменяются; subscription URL и
+настройки upstream не переносятся. Импортированные файлы являются независимыми
+snapshot-копиями.
+
+Обе программы могут быть установлены и открыты одновременно, но одновременно
+активна только одна системная VPN-сессия. Сборка Cambodgia не завершает и не
+подхватывает чужой `sing-box`: подключение отклоняется с сообщением, пока другая
+сессия не отключена её владельцем.
+
+Локальная development-сборка пока может только проверить и повторно использовать
+уже установленный upstream-механизм `/etc/sudoers.d/yurec`. Она не создаёт, не
+перезаписывает и не удаляет это широкое passwordless-правило; при его отсутствии
+подключение безопасно отклоняется. До публичного release механизм нужно заменить
+ограниченным привилегированным helper.
+
 ---
 
 ## Архитектура
@@ -57,7 +85,7 @@ YurecClient
 │   ├── AppRoutingEntry          — модель одного приложения в списке маршрутизации
 │   ├── RouteSelectorStore       — обнаружение и сохранение selector-маршрутов
 │   ├── ConnectionMode           — enum: .tun / .socks5(port:)
-│   ├── SudoersManager           — управление правилом /etc/sudoers.d/yurec
+│   ├── SudoersManager           — read-only проверка legacy upstream-прав
 │   └── LaunchAtLoginManager     — управление автозапуском через ServiceManagement
 ├── Helpers/
 │   ├── DNSHelper                — установка/сброс DNS через networksetup
@@ -85,11 +113,11 @@ TUN-режим создаёт виртуальный сетевой интерф
 StatusMenuController.connectTun()
   └── beginConnect(to: .tun, profile:)
         └── ProxyManager.start(profilePath:, mode: .tun)
-              1. killOrphanedSingBox()         — убить осиротевшие процессы sing-box
+              1. проверить отсутствие другой sing-box сессии; иначе безопасно отказать
               2. ConfigTransformer.makeTunConfig() — убирает legacy inbound поля если есть, пишет temp файл
-              3. SudoersManager.isInstalled()  — проверить наличие sudoers-правила
-                  └── если нет → SudoersManager.install() → диалог пароля (один раз за всё время)
-              4. открыть/создать лог-файл      — ~/Library/Logs/YurecClient/sing-box.log
+              3. SudoersManager.isInstalled()  — read-only проверить legacy upstream-права
+                  └── если их нет → безопасно отказать до появления helper
+              4. открыть/создать лог-файл      — ~/Library/Logs/Cambodgia YurecClient/sing-box.log
               5. Process() с sudo -n           — sudo -n /path/to/sing-box run -c config.json
               6. isRunning = true              — синхронно, до регистрации terminationHandler
               7. task.terminationHandler       — async на main queue, вызывает handleProcessTermination()
@@ -111,12 +139,10 @@ sudo -n /usr/sbin/networksetup -setdnsservers "Wi-Fi" 172.19.0.1
 
 ```
 ProxyManager.stop()
-  1. SIGKILL всем дочерним sing-box процессам (pgrepSingBox + forceKillPIDs)
-  2. killProcess() — terminate() + SIGTERM по PID
-  3. DNSHelper.resetDNS() — сбросить DNS обратно на "empty" (DHCP)
-  4. cleanupMode() — обнулить состояние
-  5. isRunning = false
-  6. startLaunchDetectionLoop() — начать следить за внешним запуском sing-box
+  1. killProcess() — остановить только PID, запущенный этой программой
+  2. DNSHelper.resetDNS() — сбросить DNS обратно на "empty" (DHCP)
+  3. cleanupMode() — обнулить состояние
+  4. isRunning = false
 ```
 
 ---
@@ -144,7 +170,7 @@ sing-box запускается без TUN-интерфейса. Открыва�
 
 ```
 ProxyManager.start(profilePath:, mode: .socks5(port:))
-  1. killOrphanedSingBox()
+  1. Отказать, если уже активна другая sing-box сессия
   2. ensurePortFreeForSocks5(port)     — проверить, что порт свободен
   3. AppRoutingStore.effectiveProcessNames(for: profile)
                                        — получить список process_name (с хелперами)
@@ -163,7 +189,8 @@ ProxyManager.start(profilePath:, mode: .socks5(port:))
 
 ### Трансформация конфига (ConfigTransformer)
 
-`ConfigTransformer.makeSocks5Config()` создаёт временный JSON в `/tmp/yurec-socks5-<UUID>.json`:
+`ConfigTransformer.makeSocks5Config()` создаёт приватный временный JSON с
+префиксом `cambodgia-yurecclient-socks5-`:
 
 **Чистый SOCKS5** (список пуст):
 1. Убирает `tun`-inbound
@@ -186,8 +213,7 @@ ProxyManager.start(profilePath:, mode: .socks5(port:))
 
 ```
 ProxyManager.stop()
-  1. SIGKILL всем дочерним sing-box процессам
-  2. killProcess()
+  1. killProcess() — остановить только отслеживаемый процесс
 
   Чистый SOCKS5:
   3a. SystemProxyHelper.disableSOCKS5()  — снять системный прокси
@@ -197,14 +223,16 @@ ProxyManager.stop()
 
   4. cleanupMode() — удалить временный конфиг, обнулить socks5UsesTun
   5. isRunning = false
-  6. startLaunchDetectionLoop()
 ```
 
 ---
 
 ## Профили
 
-Профили — это JSON-файлы конфигурации sing-box, хранящиеся в `~/.singbox/profiles/`. Приложение наблюдает за этой директорией через **FSEvents** и автоматически обновляет список.
+Профили — это JSON-файлы конфигурации sing-box, хранящиеся в
+`~/Library/Application Support/Cambodgia YurecClient/Profiles/`. Каталог имеет
+права `0700`, файлы — `0600`. Приложение наблюдает за этой директорией через
+**FSEvents** и автоматически обновляет список.
 
 ### Способы добавления профиля
 
@@ -212,6 +240,7 @@ ProxyManager.stop()
 |---|---|
 | **Add...** | Импортировать готовый JSON-файл sing-box с диска |
 | **Add from URL...** | Создать профиль из ссылки на подписку (см. [Подписки](#подписки)) |
+| **Import Yurec Profiles...** | Скопировать snapshot-профили upstream без изменения источника |
 | **New Profile...** | Создать пустой профиль-шаблон для ручного редактирования |
 
 ### Что хранится в профиле
@@ -423,16 +452,18 @@ macOS-приложения, особенно Electron-based (Claude, VS Code, Ch
 
 ## Sudoers и права
 
-И TUN, и SOCKS5 запускаются через `sudo -n` (без пароля). Правило устанавливается **один раз** — при первом подключении показывается стандартный диалог macOS.
+Текущая development-сборка запускает TUN и SOCKS5 через `sudo -n`, только если
+нужные права уже были установлены upstream YurecClient. Перед запуском выполняется
+read-only проверка `sudo -n -l <path>`.
 
-### Правило (`/etc/sudoers.d/yurec`)
+Cambodgia build не устанавливает, не переустанавливает и не удаляет общий файл
+`/etc/sudoers.d/yurec`. Если legacy-права отсутствуют или путь к бинарнику
+изменился, подключение отклоняется с понятным сообщением. Это временная
+совместимость для локальной разработки, а не модель публичного release.
 
-```
-# Managed by YurecClient — do not edit
-%admin ALL=(root) NOPASSWD: /usr/local/bin/sing-box, /opt/homebrew/bin/sing-box, /bin/kill, /usr/sbin/networksetup
-```
-
-Правило проверяется через `sudo -n -l <path>` перед каждым запуском. Если путь к бинарнику изменился — правило переустанавливается автоматически.
+Перед beta-релизом нужен ограниченный root-owned helper с узкими операциями
+`start`, `stop` и `status`, проверкой аргументов и владением только собственным
+процессом.
 
 ---
 
@@ -447,26 +478,21 @@ macOS-приложения, особенно Electron-based (Claude, VS Code, Ch
 
 ## Обнаружение внешних процессов
 
-Если sing-box был запущен не через YurecClient, клиент его всё равно подхватит.
-
-При запуске и после остановки `ProxyManager` запускает `startLaunchDetectionLoop()` — фоновый поток, который каждые 2 секунды ищет процесс `sing-box` через `sysctl(KERN_PROC_ALL)`. При обнаружении:
-
-1. Читает аргументы через `sysctl(KERN_PROCARGS2)` — ищет флаг `run` и путь к конфигу (`-c <path>`)
-2. Определяет активный профиль по пути
-3. Вызывает `adoptProcess(pid:profilePath:)` — устанавливает `isRunning = true`
-
-Для слежения за усыновлённым процессом используется **kqueue** (`EVFILT_PROC / NOTE_EXIT`). Fallback — polling раз в 2 секунды.
+При запуске клиент диагностирует существующие процессы `sing-box`, но не
+подхватывает и не завершает их. Попытка подключения при уже активной внешней
+сессии завершается безопасным отказом. Это защищает работающий upstream
+YurecClient и другие VPN-клиенты от побочных действий downstream-сборки.
 
 ---
 
 ## Логи
 
-Лог-файл: `~/Library/Logs/YurecClient/sing-box.log`
+Лог-файл: `~/Library/Logs/Cambodgia YurecClient/sing-box.log`
 
 Stdout и stderr sing-box перенаправляются в этот файл через `LogForwarder`. Каждый запуск добавляет разделитель:
 
 ```
---- YurecClient: starting SOCKS5 (port 2080) @ 2025-01-15 12:00:00 +0000 ---
+--- Cambodgia YurecClient: starting SOCKS5 (port 2080) @ 2025-01-15 12:00:00 +0000 ---
 ```
 
 Открыть: меню → **Open Logs**.
@@ -495,7 +521,7 @@ YurecClient/
 │   ├── AppRoutingEntry.swift        — модель приложения, авто-сбор хелпер-процессов
 │   ├── AppRoutingStore.swift        — двухуровневое хранилище глобал/профиль
 │   ├── RouteSelectorStore.swift      — selector outbound: парсинг, выбор и fallback
-│   ├── SudoersManager.swift         — установка /etc/sudoers.d/yurec
+│   ├── SudoersManager.swift         — read-only проверка legacy upstream-прав
 │   └── LaunchAtLoginManager.swift   — SMAppService обёртка
 ├── Helpers/
 │   ├── DNSHelper.swift              — networksetup DNS

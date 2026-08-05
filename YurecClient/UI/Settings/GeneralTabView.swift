@@ -5,7 +5,9 @@ struct GeneralTabView: View {
     @ObservedObject private var launchManager = LaunchAtLoginManager.shared
     @ObservedObject private var routingStore = AppRoutingStore.shared
     @State private var autoConnect: Bool = UserDefaults.standard.bool(forKey: "autoConnectOnLaunch")
-    @State private var binaryPath: String = UserDefaults.standard.string(forKey: "yurecBinaryPath") ?? ""
+    @State private var binaryPath: String = UserDefaults.standard.string(
+        forKey: ProductIdentity.binaryPathDefaultsKey
+    ) ?? ""
 
     // Log settings
     @State private var logLimitEnabled: Bool = UserDefaults.standard.bool(forKey: "logSizeLimitEnabled")

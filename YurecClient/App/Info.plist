@@ -27,6 +27,6 @@
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
     <key>NSSystemAdministrationUsageDescription</key>
-    <string>YurecClient needs administrator access to modify DNS settings on network interfaces.</string>
+    <string>Cambodgia YurecClient needs administrator access to manage the VPN network configuration.</string>
 </dict>
 </plist>

@@ -1,5 +1,36 @@
 # Changelog
 
+## [Unreleased] — Cambodgia downstream
+
+### Features
+
+- **Profile-driven route selector** — standard sing-box `selector` outbounds
+  are exposed in the status menu and persisted per profile and selector tag.
+- **Explicit Yurec profile import** — valid upstream profile files can be
+  copied as independent snapshots without changing their source.
+
+### Security and isolation
+
+- The downstream app now uses bundle ID
+  `ru.rom-gorodnichev.cambodgia.yurecclient`, a separate product name,
+  `UserDefaults` domain, Application Support profile directory, log directory,
+  runtime config prefix and subscription User-Agent.
+- Profile directories use mode `0700`; profiles, downloaded configs and
+  temporary runtime configs use mode `0600`.
+- Cambodgia YurecClient no longer adopts or globally terminates external
+  `sing-box` processes. A second VPN connection is refused without modifying
+  the session owned by upstream YurecClient or another application.
+- The downstream only probes an already installed legacy upstream sudoers rule.
+  It cannot create, overwrite or remove the shared system record.
+- Product-isolation and route-selector tests pass; the complete unsigned Debug
+  application builds successfully with Xcode 27.
+
+### Known release blocker
+
+- Local development may still reuse upstream's broad passwordless sudoers
+  mechanism when it already exists. It must be replaced by a constrained
+  privileged helper before a public downstream release.
+
 ## [1.2.1] — 2026-06-06
 
 ### Improvements

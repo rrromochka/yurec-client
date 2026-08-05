@@ -164,10 +164,10 @@ enum ConfigTransformer {
         // Plain SOCKS5: routing unchanged (all traffic through proxy by default).
 
         // Write to temp file (deleted on stop)
-        let out = FileManager.default.temporaryDirectory
-            .appendingPathComponent("yurec-socks5-\(UUID().uuidString).json")
+        let out = ProductIdentity.temporaryConfigURL(kind: "socks5")
         let outData = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
-        try outData.write(to: out)
+        try outData.write(to: out, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: out.path)
         return out
     }
 
@@ -199,10 +199,10 @@ enum ConfigTransformer {
             config["inbounds"] = sanitized
         }
 
-        let out = FileManager.default.temporaryDirectory
-            .appendingPathComponent("yurec-tun-\(UUID().uuidString).json")
+        let out = ProductIdentity.temporaryConfigURL(kind: "tun")
         let outData = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
-        try outData.write(to: out)
+        try outData.write(to: out, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: out.path)
         return out
     }
 
