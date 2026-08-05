@@ -31,7 +31,13 @@ Allowed statuses are `draft`, `tested`, `upstream-candidate`, `offered`,
 
 | Change | Branch | Status | Upstream result |
 | --- | --- | --- | --- |
-| No downstream patches yet | — | — | — |
+| Profile-driven sing-box route selector | `contrib/route-selector` | `tested` | `not offered` |
+
+The route-selector patch is upstream-neutral: it reads standard sing-box
+`selector` outbounds, stores a choice per profile and selector tag, and applies
+that choice only to a temporary runtime config. Its isolated Swift tests and a
+Debug build pass. Manual network and UX acceptance remains a downstream release
+gate and does not imply that the patch has been offered upstream.
 
 When upstream accepts a change, the downstream removes its duplicate patch
 during the next synchronization and uses the upstream implementation.
