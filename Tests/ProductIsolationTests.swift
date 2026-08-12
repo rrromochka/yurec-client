@@ -4,9 +4,23 @@ import Foundation
 private enum ProductIsolationTests {
     static func main() throws {
         testIdentityPaths()
+        testSubscriptionDirectRouteDomains()
         try testReadOnlyProfileImport()
         try testInvalidInputIsRejectedBeforeCopy()
         print("Product isolation tests passed")
+    }
+
+    private static func testSubscriptionDirectRouteDomains() {
+        expect(
+            ProductIdentity.subscriptionDirectRouteDomains(
+                subscriptionURL: URL(string: "https://Subscription.Example./private-token")
+            ) == ["subscription.example"],
+            "the direct control-plane domain must be derived and normalized from profile state"
+        )
+        expect(
+            ProductIdentity.subscriptionDirectRouteDomains(subscriptionURL: nil).isEmpty,
+            "profiles without a subscription must not add control-plane routing"
+        )
     }
 
     private static func testIdentityPaths() {

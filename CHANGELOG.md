@@ -23,6 +23,9 @@
   is stopped before suspension and restored once the physical network is stable
   after wake. This prevents a live sing-box process from retaining stale routes
   and DNS state until the user manually reconnects.
+- **Exit-independent subscription refresh** — the active profile's subscription
+  host is derived at runtime and routed through `direct` with the profile's
+  direct DNS resolver, so access management does not depend on the selected exit.
 
 ### Security and isolation
 

@@ -151,6 +151,12 @@ Wi-Fi/Ethernet interface to become stably usable and restores that same profile
 and mode exactly once. This prevents a live sing-box process from retaining
 stale TUN routes and DNS state across sleep.
 
+When building its ephemeral runtime config, the Cambodgia build also derives
+only the hostname from the profile's stored subscription URL and sends it via
+`direct` and direct DNS. Profile refresh therefore remains reachable when the
+selected exit is unavailable. The full URL and token are never copied into the
+runtime config.
+
 ---
 
 ## SOCKS5 Mode

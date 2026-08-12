@@ -51,6 +51,19 @@ enum ProductIdentity {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("\(runtimeNamespace)-\(kind)-\(UUID().uuidString).json")
     }
+
+    /// Returns the subscription host that must remain reachable independently
+    /// from the selected exit. The value is derived from per-profile state and
+    /// is never hard-coded into the application or persisted in generated files.
+    static func subscriptionDirectRouteDomains(subscriptionURL: URL?) -> [String] {
+        guard let host = subscriptionURL?.host?
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .lowercased(),
+              !host.isEmpty else {
+            return []
+        }
+        return [host]
+    }
 }
 
 struct ProfileImportSummary: Equatable {

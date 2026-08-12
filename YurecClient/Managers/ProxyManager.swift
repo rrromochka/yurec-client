@@ -119,6 +119,10 @@ class ProxyManager: ObservableObject {
         let configPath: String
         let profileURL = URL(fileURLWithPath: profilePath)
         let selectorDefaults = RouteSelectorStore.shared.resolvedDefaults(for: profileURL)
+        let profile = ProfileManager.shared.profiles.first { $0.path.path == profilePath }
+        let directDomains = ProductIdentity.subscriptionDirectRouteDomains(
+            subscriptionURL: profile.flatMap { ProfileManager.shared.subscriptionURL(for: $0) }
+        )
         switch mode {
         case .tun:
             // Strip legacy sing-box < 1.13 inbound fields (sniff, sniff_override_destination, …)
@@ -126,7 +130,8 @@ class ProxyManager: ObservableObject {
             // the local SOCKS proxy continue to work in TUN mode.
             if let sanitizedURL = try? ConfigTransformer.makeTunConfig(
                 from: profilePath,
-                selectorDefaults: selectorDefaults
+                selectorDefaults: selectorDefaults,
+                directDomains: directDomains
             ) {
                 tempConfigURL = sanitizedURL
                 configPath = sanitizedURL.path
@@ -139,13 +144,13 @@ class ProxyManager: ObservableObject {
             if !ensurePortFreeForSocks5(port) {
                 return failStart("SOCKS5 port \(port) is already in use. Choose another port in Settings.")
             }
-            let activeProfile = ProfileManager.shared.profiles.first { $0.path.path == profilePath }
-            let routedNames = AppRoutingStore.shared.effectiveProcessNames(for: activeProfile)
+            let routedNames = AppRoutingStore.shared.effectiveProcessNames(for: profile)
             guard let tmpURL = try? ConfigTransformer.makeSocks5Config(
                 from: profilePath,
                 port: port,
                 routedProcessNames: routedNames,
-                selectorDefaults: selectorDefaults
+                selectorDefaults: selectorDefaults,
+                directDomains: directDomains
             ) else {
                 return failStart("The selected profile could not be transformed for SOCKS5 mode.")
             }

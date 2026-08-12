@@ -33,7 +33,8 @@ enum ConfigTransformer {
         from profilePath: String,
         port: Int,
         routedProcessNames: [String] = [],
-        selectorDefaults: [String: String] = [:]
+        selectorDefaults: [String: String] = [:],
+        directDomains: [String] = []
     ) throws -> URL {
         guard let data = FileManager.default.contents(atPath: profilePath) else {
             throw Error.unreadable
@@ -161,6 +162,7 @@ enum ConfigTransformer {
                 config["dns"] = dns
             }
         }
+        Self.applyDirectDomains(directDomains, to: &config)
         // Plain SOCKS5: routing unchanged (all traffic through proxy by default).
 
         // Write to temp file (deleted on stop)
@@ -177,7 +179,8 @@ enum ConfigTransformer {
     /// already clean (so the caller can use the original file directly).
     static func makeTunConfig(
         from profilePath: String,
-        selectorDefaults: [String: String] = [:]
+        selectorDefaults: [String: String] = [:],
+        directDomains: [String] = []
     ) throws -> URL? {
         guard let data = FileManager.default.contents(atPath: profilePath) else {
             throw Error.unreadable
@@ -187,12 +190,13 @@ enum ConfigTransformer {
         }
 
         let selectorsChanged = RouteSelectorConfig.apply(defaults: selectorDefaults, to: &config)
+        let directDomainsChanged = Self.applyDirectDomains(directDomains, to: &config)
         let inbounds = (config["inbounds"] as? [[String: Any]]) ?? []
         let sanitized = inbounds.map { Self.sanitizeTunInbound($0) }
         let inboundsChanged = !zip(inbounds, sanitized).allSatisfy {
             NSDictionary(dictionary: $0.0).isEqual(to: $0.1)
         }
-        guard selectorsChanged || inboundsChanged else {
+        guard selectorsChanged || directDomainsChanged || inboundsChanged else {
             return nil  // nothing to change — use original file
         }
         if inboundsChanged {
@@ -204,6 +208,122 @@ enum ConfigTransformer {
         try outData.write(to: out, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: out.path)
         return out
+    }
+
+    /// Keeps control-plane requests independent from the currently selected
+    /// exit. The rule is applied only to the ephemeral runtime config.
+    ///
+    /// DNS is sent through an existing direct-detoured resolver when the source
+    /// profile provides one. The route rule itself is still useful for profiles
+    /// whose inbound already carries the requested domain (for example SOCKS5).
+    @discardableResult
+    static func applyDirectDomains(
+        _ rawDomains: [String],
+        to config: inout [String: Any]
+    ) -> Bool {
+        let domains = Self.normalizedDomains(rawDomains)
+        guard !domains.isEmpty else { return false }
+        var changed = false
+
+        var outbounds = (config["outbounds"] as? [[String: Any]]) ?? []
+        if !outbounds.contains(where: { ($0["tag"] as? String) == "direct" }) {
+            outbounds.append(["type": "direct", "tag": "direct"])
+            config["outbounds"] = outbounds
+            changed = true
+        }
+
+        var route = (config["route"] as? [String: Any]) ?? [:]
+        var routeRules = (route["rules"] as? [[String: Any]]) ?? []
+
+        // A plain SOCKS5 session has an early catch-all rule for mixed-in.
+        // Put a narrower domain rule before it; otherwise the refresh request
+        // would still be sent through the selected exit.
+        let hasMixedInbound = ((config["inbounds"] as? [[String: Any]]) ?? [])
+            .contains { ($0["tag"] as? String) == "mixed-in" }
+        let mixedAlreadyDirect = Set(routeRules
+            .filter {
+                ($0["outbound"] as? String) == "direct"
+                    && (($0["inbound"] as? [String])?.contains("mixed-in") == true)
+            }
+            .flatMap(Self.domains(in:)))
+        let missingMixedDomains = domains.filter { !mixedAlreadyDirect.contains($0) }
+        if hasMixedInbound, !missingMixedDomains.isEmpty {
+            routeRules.insert([
+                "inbound": ["mixed-in"],
+                "domain": missingMixedDomains,
+                "action": "route",
+                "outbound": "direct"
+            ], at: 0)
+            changed = true
+        }
+
+        let globalAlreadyDirect = Set(routeRules
+            .filter {
+                ($0["outbound"] as? String) == "direct" && $0["inbound"] == nil
+            }
+            .flatMap(Self.domains(in:)))
+        let missingRouteDomains = domains.filter { !globalAlreadyDirect.contains($0) }
+        if !missingRouteDomains.isEmpty {
+            let sniffIndex = routeRules.firstIndex {
+                ($0["action"] as? String) == "sniff"
+            }
+            let insertionIndex = sniffIndex.map { $0 + 1 } ?? 0
+            routeRules.insert([
+                "domain": missingRouteDomains,
+                "action": "route",
+                "outbound": "direct"
+            ], at: insertionIndex)
+            route["rules"] = routeRules
+            config["route"] = route
+            changed = true
+        }
+
+        if var dns = config["dns"] as? [String: Any],
+           let directServerTag = ((dns["servers"] as? [[String: Any]]) ?? [])
+            .first(where: {
+                ($0["detour"] as? String) == "direct"
+                    && (($0["tag"] as? String)?.isEmpty == false)
+            })?["tag"] as? String {
+            var dnsRules = (dns["rules"] as? [[String: Any]]) ?? []
+            let dnsAlreadyDirect = Set(dnsRules
+                .filter { ($0["server"] as? String) == directServerTag }
+                .flatMap(Self.domains(in:)))
+            let missingDNSDomains = domains.filter { !dnsAlreadyDirect.contains($0) }
+            if !missingDNSDomains.isEmpty {
+                dnsRules.insert([
+                    "domain": missingDNSDomains,
+                    "action": "route",
+                    "server": directServerTag
+                ], at: 0)
+                dns["rules"] = dnsRules
+                config["dns"] = dns
+                changed = true
+            }
+        }
+
+        return changed
+    }
+
+    private static func normalizedDomains(_ domains: [String]) -> [String] {
+        var seen = Set<String>()
+        return domains.compactMap { raw -> String? in
+            let domain = raw
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+                .lowercased()
+            guard !domain.isEmpty, seen.insert(domain).inserted else { return nil }
+            return domain
+        }
+    }
+
+    private static func domains(in rule: [String: Any]) -> [String] {
+        if let values = rule["domain"] as? [String] {
+            return Self.normalizedDomains(values)
+        }
+        if let value = rule["domain"] as? String {
+            return Self.normalizedDomains([value])
+        }
+        return []
     }
 
     // Removes legacy per-inbound fields deprecated in sing-box 1.11.0 and removed in 1.13.0.
