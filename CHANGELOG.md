@@ -19,6 +19,10 @@
 - **Reliable route switching** — profile, route and connection-mode changes now
   wait for the app's previous sing-box session to exit before launching its
   replacement, preventing a stale TUN session from racing the restart.
+- **TUN recovery after macOS sleep** — a connection that was active before sleep
+  is stopped before suspension and restored once the physical network is stable
+  after wake. This prevents a live sing-box process from retaining stale routes
+  and DNS state until the user manually reconnects.
 
 ### Security and isolation
 

@@ -143,6 +143,14 @@ ProxyManager.stop()
   4. isRunning = false
 ```
 
+### macOS sleep and wake
+
+Before macOS sleeps, the client records the active profile and mode, stops its
+owned sing-box session, and restores DNS. After wake, it waits for the physical
+Wi-Fi/Ethernet interface to become stably usable and restores that same profile
+and mode exactly once. This prevents a live sing-box process from retaining
+stale TUN routes and DNS state across sleep.
+
 ---
 
 ## SOCKS5 Mode
