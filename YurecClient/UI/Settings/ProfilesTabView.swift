@@ -10,8 +10,6 @@ struct ProfilesTabView: View {
     @State private var refreshingProfileID: UUID?
     @State private var errorMessage: String?
     @State private var showError = false
-    @State private var refreshResultMessage: String?
-    @State private var showRefreshResult = false
     @State private var socks5PortText: String = ""
     // Per-profile app routing state
     @State private var profileOverride: Bool = false
@@ -62,13 +60,6 @@ struct ProfilesTabView: View {
             }
         }
         .alert("Error", isPresented: $showError, presenting: errorMessage) { _ in
-            Button("OK") {}
-        } message: { msg in Text(msg) }
-        .alert(
-            "Route Changed After Update",
-            isPresented: $showRefreshResult,
-            presenting: refreshResultMessage
-        ) { _ in
             Button("OK") {}
         } message: { msg in Text(msg) }
     }
@@ -321,7 +312,7 @@ struct ProfilesTabView: View {
 
     private func presentRefreshFallbacks(_ fallbacks: [RouteSelectionFallback]) {
         guard !fallbacks.isEmpty else { return }
-        refreshResultMessage = fallbacks.map { fallback in
+        let message = fallbacks.map { fallback in
             if let replacement = fallback.fallbackOption {
                 return "\"\(fallback.unavailableOption)\" is no longer available. "
                     + "The route changed to \"\(replacement)\"."
@@ -329,7 +320,13 @@ struct ProfilesTabView: View {
             return "\"\(fallback.unavailableOption)\" is no longer available. "
                 + "The refreshed profile no longer provides that route selector."
         }.joined(separator: "\n")
-        showRefreshResult = true
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Route Changed After Update"
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func present(_ error: Error) {
