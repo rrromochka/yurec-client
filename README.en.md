@@ -233,8 +233,11 @@ countries, providers, or servers.
 - the downloaded profile is never edited: the selected `default` is applied only to
   a temporary runtime config;
 - changing a route while connected restarts sing-box in the same mode;
-- if a subscription update removes the saved choice, the client safely falls back
-  to the new config's `default` or its first available option;
+- after a successful update of the active subscription, the client restarts the
+  connection in the same mode so the downloaded config takes effect immediately;
+- if an update removes an explicitly selected choice, the client clears the stale
+  selection, falls back to the new config's `default` or its first available
+  option, and tells the user that the route changed;
 - profiles with multiple selector outbounds get a nested submenu for each tag.
 
 ---
@@ -252,7 +255,10 @@ Settings → Profiles → **Add from URL...**
 
 ### Updating
 
-The profile settings panel shows the subscription URL and an **Update** button — clicking it re-downloads and overwrites the config. Per-profile settings (SOCKS5 port, App Routing) are preserved.
+The profile settings panel shows the subscription URL and an **Update** button —
+clicking it re-downloads and overwrites the config. Per-profile settings (SOCKS5
+port, App Routing, and a Route choice that remains available) are preserved. If
+the profile is active, its connection is automatically restarted in the same mode.
 
 ### Supported response formats
 
