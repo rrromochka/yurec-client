@@ -320,7 +320,11 @@ struct ProfilesTabView: View {
             return true
         }
 
-        proxy.stop()
+        guard proxy.stopAndWaitForRestart() else {
+            errorMessage = "The subscription was updated, but the previous connection did not stop in time."
+            showError = true
+            return false
+        }
         guard proxy.start(profilePath: profile.path.path, mode: mode) else {
             errorMessage = proxy.lastStartFailure
                 ?? "The subscription was updated, but the active connection could not be restarted."

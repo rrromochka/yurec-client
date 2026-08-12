@@ -312,7 +312,7 @@ class StatusMenuController: NSObject {
         guard let profile = sender.representedObject as? Profile else { return }
         let wasRunning = proxyManager.isRunning
         let previousMode = proxyManager.currentMode
-        if wasRunning { proxyManager.stop() }
+        guard !wasRunning || proxyManager.stopAndWaitForRestart() else { return }
         profileManager.setActiveProfile(profile)
         if wasRunning, let mode = previousMode {
             let port = profileManager.socks5Port(for: profile)
@@ -342,9 +342,7 @@ class StatusMenuController: NSObject {
         )
 
         let previousMode = proxyManager.currentMode
-        if proxyManager.isRunning {
-            proxyManager.stop()
-        }
+        guard !proxyManager.isRunning || proxyManager.stopAndWaitForRestart() else { return }
         buildMenu()
         if let mode = previousMode {
             beginConnect(to: mode, profile: profile)
@@ -354,7 +352,7 @@ class StatusMenuController: NSObject {
     @objc private func connectSocks5() {
         guard let profile = profileManager.activeProfile else { showNoProfileAlert(); return }
         if case .socks5 = proxyManager.currentMode { return }
-        if proxyManager.isRunning { proxyManager.stop() }
+        guard !proxyManager.isRunning || proxyManager.stopAndWaitForRestart() else { return }
         let port = profileManager.socks5Port(for: profile)
         beginConnect(to: .socks5(port: port), profile: profile)
     }
@@ -362,7 +360,7 @@ class StatusMenuController: NSObject {
     @objc private func connectTun() {
         guard let profile = profileManager.activeProfile else { showNoProfileAlert(); return }
         if proxyManager.currentMode == .tun { return }
-        if proxyManager.isRunning { proxyManager.stop() }
+        guard !proxyManager.isRunning || proxyManager.stopAndWaitForRestart() else { return }
         beginConnect(to: .tun, profile: profile)
     }
 
