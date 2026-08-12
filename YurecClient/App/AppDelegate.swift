@@ -64,7 +64,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ) else { return }
 
         print("\(ProductIdentity.logPrefix) system will sleep: stopping the owned connection")
-        proxy.stop()
+        let stopped = proxy.stopAndWaitForRestart(timeout: 2.0)
+        if !stopped {
+            print("\(ProductIdentity.logPrefix) system will sleep: owned process exit timed out")
+        }
     }
 
     @objc private func systemDidWake(_ notification: Notification) {
