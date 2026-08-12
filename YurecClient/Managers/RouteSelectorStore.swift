@@ -10,6 +10,22 @@ struct RouteSelectorDescriptor: Equatable {
     let configDefault: String?
 }
 
+/// Describes a saved route that disappeared after a subscription refresh.
+///
+/// `fallbackOption` is nil when the refreshed profile removed the entire
+/// selector rather than just the selected option.
+struct RouteSelectionFallback: Equatable {
+    let selectorTag: String
+    let unavailableOption: String
+    let fallbackOption: String?
+}
+
+/// A validated explicit choice captured before a subscription refresh starts.
+struct PersistedRouteSelection: Equatable {
+    let selectorTag: String
+    let option: String
+}
+
 /// Reads and updates the standard sing-box `selector` outbound format.
 enum RouteSelectorConfig {
     enum Error: LocalizedError {
@@ -126,6 +142,60 @@ final class RouteSelectorStore {
         Dictionary(uniqueKeysWithValues: selectors.compactMap { selector in
             selectedOption(for: selector, profileURL: profileURL).map { (selector.tag, $0) }
         })
+    }
+
+    /// Captures only explicit choices, not implicit server-side defaults.
+    ///
+    /// The snapshot is taken before the asynchronous download starts so a file
+    /// watcher cannot erase a stale choice before fallback UX is generated.
+    func persistedSelectionSnapshot(
+        for selectors: [RouteSelectorDescriptor],
+        profileURL: URL
+    ) -> [PersistedRouteSelection] {
+        selectors.compactMap { selector in
+            let key = selectionKey(profileURL: profileURL, selectorTag: selector.tag)
+            guard let stored = defaults.string(forKey: key),
+                  selector.options.contains(stored) else {
+                return nil
+            }
+            return PersistedRouteSelection(selectorTag: selector.tag, option: stored)
+        }
+    }
+
+    /// Reconciles persisted choices after a subscription replaced the profile.
+    ///
+    /// Choices that still exist are preserved. A choice that disappeared is
+    /// removed so the refreshed config's declared default (or first option)
+    /// becomes authoritative, and a result is returned for user-facing UX.
+    func reconcileSelectionsAfterRefresh(
+        previousSelections: [PersistedRouteSelection],
+        refreshedSelectors: [RouteSelectorDescriptor],
+        profileURL: URL
+    ) -> [RouteSelectionFallback] {
+        let refreshedByTag = Dictionary(
+            uniqueKeysWithValues: refreshedSelectors.map { ($0.tag, $0) }
+        )
+
+        return previousSelections.compactMap { previous in
+            let key = selectionKey(profileURL: profileURL, selectorTag: previous.selectorTag)
+
+            guard let refreshed = refreshedByTag[previous.selectorTag] else {
+                defaults.removeObject(forKey: key)
+                return RouteSelectionFallback(
+                    selectorTag: previous.selectorTag,
+                    unavailableOption: previous.option,
+                    fallbackOption: nil
+                )
+            }
+
+            guard !refreshed.options.contains(previous.option) else { return nil }
+            defaults.removeObject(forKey: key)
+            return RouteSelectionFallback(
+                selectorTag: previous.selectorTag,
+                unavailableOption: previous.option,
+                fallbackOption: refreshed.configDefault ?? refreshed.options.first
+            )
+        }
     }
 
     private func selectionKey(profileURL: URL, selectorTag: String) -> String {

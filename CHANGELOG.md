@@ -9,6 +9,14 @@
 - **Explicit Yurec profile import** — valid upstream profile files can be
   copied as independent snapshots without changing their source.
 
+### Bug Fixes
+
+- **Live subscription refresh** — updating the active subscription now restarts
+  sing-box in the same connection mode so the downloaded config takes effect
+  immediately. If an explicitly selected route was revoked, the stale choice is
+  cleared, the refreshed profile's safe fallback is applied, and the user is
+  notified about the route change.
+
 ### Security and isolation
 
 - The downstream app now uses bundle ID

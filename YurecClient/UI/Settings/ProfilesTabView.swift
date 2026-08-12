@@ -12,6 +12,8 @@ struct ProfilesTabView: View {
     @State private var showError = false
     @State private var importResultMessage = ""
     @State private var showImportResult = false
+    @State private var refreshResultMessage: String?
+    @State private var showRefreshResult = false
     @State private var socks5PortText: String = ""
     // Per-profile app routing state
     @State private var profileOverride: Bool = false
@@ -70,6 +72,13 @@ struct ProfilesTabView: View {
         } message: {
             Text(importResultMessage)
         }
+        .alert(
+            "Route Changed After Update",
+            isPresented: $showRefreshResult,
+            presenting: refreshResultMessage
+        ) { _ in
+            Button("OK") {}
+        } message: { msg in Text(msg) }
     }
 
     // MARK: - Per-profile settings panel
@@ -285,14 +294,62 @@ struct ProfilesTabView: View {
 
     private func refreshSubscription(_ profile: Profile) {
         refreshingProfileID = profile.id
+        let previousSelectors = RouteSelectorStore.shared.selectors(for: profile.path)
+        let previousSelections = RouteSelectorStore.shared.persistedSelectionSnapshot(
+            for: previousSelectors,
+            profileURL: profile.path
+        )
         Task {
             do {
                 try await profileManager.refreshProfile(profile)
+                let refreshedSelectors = RouteSelectorStore.shared.selectors(for: profile.path)
+                let fallbacks = RouteSelectorStore.shared.reconcileSelectionsAfterRefresh(
+                    previousSelections: previousSelections,
+                    refreshedSelectors: refreshedSelectors,
+                    profileURL: profile.path
+                )
+                await MainActor.run {
+                    if restartActiveConnectionIfNeeded(for: profile) {
+                        presentRefreshFallbacks(fallbacks)
+                    }
+                }
             } catch {
                 await MainActor.run { present(error) }
             }
             await MainActor.run { refreshingProfileID = nil }
         }
+    }
+
+    private func restartActiveConnectionIfNeeded(for profile: Profile) -> Bool {
+        let proxy = ProxyManager.shared
+        guard proxy.isRunning,
+              let mode = proxy.currentMode,
+              profileManager.activeProfile?.path.standardizedFileURL
+                == profile.path.standardizedFileURL else {
+            return true
+        }
+
+        proxy.stop()
+        guard proxy.start(profilePath: profile.path.path, mode: mode) else {
+            errorMessage = proxy.lastStartFailure
+                ?? "The subscription was updated, but the active connection could not be restarted."
+            showError = true
+            return false
+        }
+        return true
+    }
+
+    private func presentRefreshFallbacks(_ fallbacks: [RouteSelectionFallback]) {
+        guard !fallbacks.isEmpty else { return }
+        refreshResultMessage = fallbacks.map { fallback in
+            if let replacement = fallback.fallbackOption {
+                return "\"\(fallback.unavailableOption)\" is no longer available. "
+                    + "The route changed to \"\(replacement)\"."
+            }
+            return "\"\(fallback.unavailableOption)\" is no longer available. "
+                + "The refreshed profile no longer provides that route selector."
+        }.joined(separator: "\n")
+        showRefreshResult = true
     }
 
     private func present(_ error: Error) {

@@ -6,6 +6,7 @@ private enum RouteSelectorStoreTests {
         try testSelectorDiscovery()
         try testApplyingSelections()
         testPerProfilePersistenceAndFallback()
+        testRefreshFallbackReporting()
         print("RouteSelectorStore tests passed")
     }
 
@@ -125,6 +126,107 @@ private enum RouteSelectorStoreTests {
         expect(
             store.selectedOption(for: refreshed, profileURL: profileURL) == "Finland",
             "a removed route must fall back safely after subscription refresh"
+        )
+    }
+
+    private static func testRefreshFallbackReporting() {
+        let suiteName = "RouteSelectorStoreRefreshTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("cannot create isolated defaults suite")
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = RouteSelectorStore(defaults: defaults)
+        let profileURL = URL(fileURLWithPath: "/tmp/refresh-profile.json")
+        let original = RouteSelectorDescriptor(
+            tag: "proxy",
+            options: ["Finland", "USA", "Kazakhstan"],
+            configDefault: "Finland"
+        )
+
+        store.setSelectedOption("USA", selectorTag: "proxy", profileURL: profileURL)
+        let snapshot = store.persistedSelectionSnapshot(
+            for: [original],
+            profileURL: profileURL
+        )
+        expect(
+            snapshot == [PersistedRouteSelection(selectorTag: "proxy", option: "USA")],
+            "refresh must capture an explicit selection before replacing the profile"
+        )
+        let stillAvailable = RouteSelectorDescriptor(
+            tag: "proxy",
+            options: ["Finland", "USA"],
+            configDefault: "Finland"
+        )
+        expect(
+            store.reconcileSelectionsAfterRefresh(
+                previousSelections: snapshot,
+                refreshedSelectors: [stillAvailable],
+                profileURL: profileURL
+            ).isEmpty,
+            "a route that remains available must not produce a fallback"
+        )
+        expect(
+            store.selectedOption(for: stillAvailable, profileURL: profileURL) == "USA",
+            "a route that remains available must stay selected"
+        )
+
+        let removedOption = RouteSelectorDescriptor(
+            tag: "proxy",
+            options: ["Finland", "Kazakhstan"],
+            configDefault: "Finland"
+        )
+        expect(
+            store.reconcileSelectionsAfterRefresh(
+                previousSelections: snapshot,
+                refreshedSelectors: [removedOption],
+                profileURL: profileURL
+            ) == [
+                RouteSelectionFallback(
+                    selectorTag: "proxy",
+                    unavailableOption: "USA",
+                    fallbackOption: "Finland"
+                )
+            ],
+            "a removed saved route must report its effective fallback"
+        )
+        expect(
+            store.selectedOption(for: removedOption, profileURL: profileURL) == "Finland",
+            "a removed saved route must be cleared from persistence"
+        )
+
+        store.setSelectedOption("Kazakhstan", selectorTag: "proxy", profileURL: profileURL)
+        let selectorRemovalSnapshot = store.persistedSelectionSnapshot(
+            for: [removedOption],
+            profileURL: profileURL
+        )
+        expect(
+            store.reconcileSelectionsAfterRefresh(
+                previousSelections: selectorRemovalSnapshot,
+                refreshedSelectors: [],
+                profileURL: profileURL
+            ) == [
+                RouteSelectionFallback(
+                    selectorTag: "proxy",
+                    unavailableOption: "Kazakhstan",
+                    fallbackOption: nil
+                )
+            ],
+            "removing an entire selector must report that no selector fallback exists"
+        )
+
+        defaults.removePersistentDomain(forName: suiteName)
+        let serverDefaultOnly = RouteSelectorDescriptor(
+            tag: "proxy",
+            options: ["Finland", "USA"],
+            configDefault: "Finland"
+        )
+        expect(
+            store.persistedSelectionSnapshot(
+                for: [serverDefaultOnly],
+                profileURL: profileURL
+            ).isEmpty,
+            "an implicit server default must not become a sticky client choice"
         )
     }
 
