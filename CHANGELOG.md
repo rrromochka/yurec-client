@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Bug Fixes
+
+- **TUN recovery after macOS sleep** — a connection that was active before sleep is now stopped before suspension and restored once the physical network is stable after wake. This prevents a live sing-box process from keeping stale routes and DNS state until the user manually reconnects.
+
 ## [1.2.1] — 2026-06-06
 
 ### Improvements
