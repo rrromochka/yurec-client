@@ -9,6 +9,9 @@
   immediately. If an explicitly selected route was revoked, the stale choice is
   cleared, the refreshed profile's safe fallback is applied, and the user is
   notified about the route change.
+- **Reliable route switching** — profile, route and connection-mode changes now
+  wait for the app's previous sing-box session to exit before launching its
+  replacement, preventing a stale TUN session from racing the restart.
 
 ## [1.2.1] — 2026-06-06
 

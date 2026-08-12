@@ -274,6 +274,33 @@ class ProxyManager: ObservableObject {
         startLaunchDetectionLoop()
     }
 
+    /// Stops the current session and waits briefly for the process launched by
+    /// this app to exit before a replacement session is started.
+    ///
+    /// Route/profile changes and subscription refreshes are synchronous UI
+    /// actions. A plain `stop()` only sends the termination signal; starting
+    /// immediately afterwards can race the old `sudo`/`sing-box` process and
+    /// leave the new session unable to acquire the TUN interface. Waiting is
+    /// deliberately bounded and tied to our tracked Process reference.
+    @discardableResult
+    func stopAndWaitForRestart(timeout: TimeInterval = 2.0) -> Bool {
+        guard isRunning else { return true }
+        let process = runningProcess
+        stop()
+
+        guard let process else { return true }
+        let deadline = Date().addingTimeInterval(timeout)
+        while (process.isRunning || !pgrepSingBox().isEmpty), Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+
+        if process.isRunning || !pgrepSingBox().isEmpty {
+            print("[YurecClient] restart blocked: previous session did not exit within \(timeout)s")
+            return false
+        }
+        return true
+    }
+
     private func cleanupMode() {
         logForwarder?.stop()
         logForwarder = nil
