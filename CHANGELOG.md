@@ -27,6 +27,13 @@
   host is derived at runtime and routed through `direct` with the profile's
   direct DNS resolver, so access management does not depend on the selected exit.
 
+### Validation
+
+- Manual macOS acceptance on 2026-08-13 confirmed automatic recovery after a
+  real sleep/wake cycle without toggling TUN. A subsequent live subscription
+  update completed successfully, preserved the current route set and retained
+  a working Finland egress.
+
 ### Security and isolation
 
 - The downstream app now uses bundle ID
