@@ -13,6 +13,7 @@ class ProxyManager: ObservableObject {
 
     private var runningPID: Int32?
     private var runningProcess: Process?  // strong ref so process isn't deallocated
+    private var sessionLifecycle = ProcessSessionLifecycle()
     private var binaryPath: String = ""
     private var tempConfigURL: URL?   // temp file written by ConfigTransformer (SOCKS5 or TUN sanitized)
     private var logForwarder: LogForwarder?
@@ -227,6 +228,7 @@ class ProxyManager: ObservableObject {
         runningProcess = task
         runningPID = pid
         currentMode = mode
+        let session = sessionLifecycle.begin(pid: pid)
 
         // Set isRunning SYNCHRONOUSLY before registering the terminationHandler.
         // If the process dies instantly (e.g. SOCKS5 port TIME_WAIT), the handler
@@ -238,7 +240,7 @@ class ProxyManager: ObservableObject {
         // terminationHandler is called on an arbitrary thread when the process exits
         task.terminationHandler = { [weak self] proc in
             print("\(ProductIdentity.logPrefix) terminationHandler: PID=\(proc.processIdentifier) status=\(proc.terminationStatus)")
-            DispatchQueue.main.async { self?.handleProcessTermination() }
+            DispatchQueue.main.async { self?.handleProcessTermination(for: session) }
         }
 
         // Apply mode-specific system networking:
@@ -296,13 +298,14 @@ class ProxyManager: ObservableObject {
         }
 
         if process.isRunning || !pgrepSingBox().isEmpty {
-            print("[YurecClient] restart blocked: previous session did not exit within \(timeout)s")
+            print("\(ProductIdentity.logPrefix) restart blocked: previous session did not exit within \(timeout)s")
             return false
         }
         return true
     }
 
     private func cleanupMode() {
+        sessionLifecycle.clear()
         logForwarder?.stop()
         logForwarder = nil
         if let url = tempConfigURL {
@@ -436,11 +439,18 @@ class ProxyManager: ObservableObject {
         task.waitUntilExit()
     }
 
-    private func handleProcessTermination() {
-        // If stop() already cleaned up (set isRunning=false), do nothing.
-        // This prevents the terminationHandler from clobbering state when
-        // stop() is immediately followed by start() for mode-switching.
-        guard isRunning else { return }
+    private func handleProcessTermination(for session: ProcessSessionToken) {
+        guard isRunning else {
+            print("\(ProductIdentity.logPrefix) ignoring termination for inactive session generation=\(session.generation) PID=\(session.pid)")
+            return
+        }
+        guard sessionLifecycle.finish(session) else {
+            let active = sessionLifecycle.active
+            let activeGeneration = active.map { String($0.generation) } ?? "none"
+            let activePID = active.map { String($0.pid) } ?? "none"
+            print("\(ProductIdentity.logPrefix) ignoring stale termination generation=\(session.generation) PID=\(session.pid); active generation=\(activeGeneration) PID=\(activePID)")
+            return
+        }
         switch currentMode {
         case .tun:
             DNSHelper.resetDNS()
@@ -496,6 +506,7 @@ class ProxyManager: ObservableObject {
             break
         }
         if let url = tempConfigURL { try? FileManager.default.removeItem(at: url) }
+        sessionLifecycle.clear()
         runningPID = nil
         runningProcess = nil
     }

@@ -33,6 +33,7 @@ Allowed statuses are `draft`, `tested`, `upstream-candidate`, `offered`,
 | --- | --- | --- | --- |
 | Profile-driven sing-box route selector | `contrib/route-selector` | `tested` | `not offered` |
 | TUN recovery after macOS sleep | `contrib/sleep-wake-recovery` | `tested` | `not offered` |
+| Session lifecycle generation guard | `contrib/session-lifecycle` | `tested` | `not offered` |
 
 The route-selector patch is upstream-neutral: it reads standard sing-box
 `selector` outbounds, stores a choice per profile and selector tag, and applies
@@ -45,6 +46,12 @@ by the app before sleep, waits for a stable physical network after wake and
 restores the same profile and mode once. Its isolated tests and Debug build
 pass; manual downstream acceptance on 2026-08-13 confirmed recovery without a
 TUN toggle and a successful live subscription update afterwards.
+
+The session-lifecycle patch is upstream-neutral as well. It assigns a
+generation-based token to every sing-box session and ignores delayed
+termination callbacks that no longer own the active session. Its isolated
+tests cover replacement sessions, PID reuse and duplicate callbacks; a Debug
+build passes. Manual downstream acceptance remains pending.
 
 When upstream accepts a change, the downstream removes its duplicate patch
 during the next synchronization and uses the upstream implementation.

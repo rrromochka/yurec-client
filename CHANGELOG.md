@@ -26,6 +26,10 @@
 - **Exit-independent subscription refresh** — the active profile's subscription
   host is derived at runtime and routed through `direct` with the profile's
   direct DNS resolver, so access management does not depend on the selected exit.
+- **Stale process termination callbacks** — every launched session now has a
+  generation-based identity. A delayed callback from the stopped session can no
+  longer mark its replacement disconnected or clear the replacement's network
+  state, even if macOS later reuses the same PID.
 
 ### Validation
 

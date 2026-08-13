@@ -119,9 +119,10 @@ StatusMenuController.connectTun()
                   └── если их нет → безопасно отказать до появления helper
               4. открыть/создать лог-файл      — ~/Library/Logs/Cambodgia YurecClient/sing-box.log
               5. Process() с sudo -n           — sudo -n /path/to/sing-box run -c config.json
-              6. isRunning = true              — синхронно, до регистрации terminationHandler
-              7. task.terminationHandler       — async на main queue, вызывает handleProcessTermination()
-              8. DNSHelper.setDNS("172.19.0.1") — перенаправить DNS всех сетевых интерфейсов
+              6. создать session token         — generation + PID отличают текущий процесс от прежних
+              7. isRunning = true              — синхронно, до регистрации terminationHandler
+              8. task.terminationHandler       — async на main queue; устаревшие callbacks игнорируются
+              9. DNSHelper.setDNS("172.19.0.1") — перенаправить DNS всех сетевых интерфейсов
                                                   на fake-ip стек sing-box
 ```
 
