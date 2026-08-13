@@ -12,6 +12,7 @@ class ProxyManager: ObservableObject {
 
     private var runningPID: Int32?
     private var runningProcess: Process?  // strong ref so process isn't deallocated
+    private var sessionLifecycle = ProcessSessionLifecycle()
     private var statusTimer: Timer?
     private var binaryPath: String = ""
     private var tempConfigURL: URL?   // temp file written by ConfigTransformer (SOCKS5 or TUN sanitized)
@@ -208,6 +209,7 @@ class ProxyManager: ObservableObject {
         runningProcess = task
         runningPID = pid
         currentMode = mode
+        let session = sessionLifecycle.begin(pid: pid)
 
         // Set isRunning SYNCHRONOUSLY before registering the terminationHandler.
         // If the process dies instantly (e.g. SOCKS5 port TIME_WAIT), the handler
@@ -219,7 +221,7 @@ class ProxyManager: ObservableObject {
         // terminationHandler is called on an arbitrary thread when the process exits
         task.terminationHandler = { [weak self] proc in
             print("[YurecClient] terminationHandler: PID=\(proc.processIdentifier) status=\(proc.terminationStatus)")
-            DispatchQueue.main.async { self?.handleProcessTermination() }
+            DispatchQueue.main.async { self?.handleProcessTermination(for: session) }
         }
 
         // Apply mode-specific system networking:
@@ -265,6 +267,7 @@ class ProxyManager: ObservableObject {
     }
 
     private func cleanupMode() {
+        sessionLifecycle.clear()
         logForwarder?.stop()
         logForwarder = nil
         if let url = tempConfigURL {
@@ -439,11 +442,18 @@ class ProxyManager: ObservableObject {
         task.waitUntilExit()
     }
 
-    private func handleProcessTermination() {
-        // If stop() already cleaned up (set isRunning=false), do nothing.
-        // This prevents the terminationHandler from clobbering state when
-        // stop() is immediately followed by start() for mode-switching.
-        guard isRunning else { return }
+    private func handleProcessTermination(for session: ProcessSessionToken) {
+        guard isRunning else {
+            print("[YurecClient] ignoring termination for inactive session generation=\(session.generation) PID=\(session.pid)")
+            return
+        }
+        guard sessionLifecycle.finish(session) else {
+            let active = sessionLifecycle.active
+            let activeGeneration = active.map { String($0.generation) } ?? "none"
+            let activePID = active.map { String($0.pid) } ?? "none"
+            print("[YurecClient] ignoring stale termination generation=\(session.generation) PID=\(session.pid); active generation=\(activeGeneration) PID=\(activePID)")
+            return
+        }
         switch currentMode {
         case .tun:
             DNSHelper.resetDNS()
@@ -460,29 +470,34 @@ class ProxyManager: ObservableObject {
     /// Adopts a sing-box process found externally (detection loop / app launch).
     /// We don't have a Process reference so we poll via kqueue.
     private func adoptProcess(pid: Int32, profilePath: String?) {
+        guard !isRunning else {
+            print("[YurecClient] adoptProcess: ignoring PID \(pid) because a session is already active")
+            return
+        }
         stopLaunchDetectionLoop()
         runningPID = pid
+        let session = sessionLifecycle.begin(pid: pid)
         isRunning = true
         if let path = profilePath {
             ProfileManager.shared.activateProfileByPath(path)
         }
         // Watch the adopted process with kqueue (we have no Process ref for terminationHandler)
-        startKqueueWatchAsync(pid: pid)
+        startKqueueWatchAsync(pid: pid, session: session)
     }
 
     // MARK: - kqueue watch for adopted processes
 
     private var watchingProcess = false
 
-    private func startKqueueWatchAsync(pid: Int32) {
+    private func startKqueueWatchAsync(pid: Int32, session: ProcessSessionToken) {
         watchingProcess = true
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self else { return }
-            if self.startKqueueWatch(pid: pid) {
+            if self.startKqueueWatch(pid: pid, session: session) {
                 print("[YurecClient] watching adopted PID \(pid) via kqueue")
             } else {
                 print("[YurecClient] kqueue unavailable for PID \(pid), falling back to polling")
-                self.runPollingLoop(pid: pid)
+                self.runPollingLoop(pid: pid, session: session)
             }
         }
     }
@@ -493,7 +508,7 @@ class ProxyManager: ObservableObject {
 
     /// Blocks a background thread until the process exits (kqueue EVFILT_PROC).
     /// Returns true if we successfully registered; false if no access (use polling instead).
-    private func startKqueueWatch(pid: Int32) -> Bool {
+    private func startKqueueWatch(pid: Int32, session: ProcessSessionToken) -> Bool {
         let kq = kqueue()
         guard kq != -1 else { return false }
         defer { close(kq) }
@@ -515,7 +530,9 @@ class ProxyManager: ObservableObject {
             if n > 0 {
                 print("[YurecClient] kqueue: adopted PID \(pid) exited")
                 if watchingProcess {
-                    DispatchQueue.main.async { [weak self] in self?.handleProcessTermination() }
+                    DispatchQueue.main.async { [weak self] in
+                        self?.handleProcessTermination(for: session)
+                    }
                 }
                 return true
             }
@@ -523,13 +540,15 @@ class ProxyManager: ObservableObject {
         return true
     }
 
-    private func runPollingLoop(pid: Int32) {
+    private func runPollingLoop(pid: Int32, session: ProcessSessionToken) {
         while watchingProcess {
             Thread.sleep(forTimeInterval: 2.0)
             guard watchingProcess else { break }
             if kill(pid, 0) != 0 && errno == ESRCH {
                 print("[YurecClient] polling: adopted PID \(pid) no longer exists")
-                DispatchQueue.main.async { [weak self] in self?.handleProcessTermination() }
+                DispatchQueue.main.async { [weak self] in
+                    self?.handleProcessTermination(for: session)
+                }
                 return
             }
         }
@@ -727,6 +746,7 @@ class ProxyManager: ObservableObject {
             break
         }
         if let url = tempConfigURL { try? FileManager.default.removeItem(at: url) }
+        sessionLifecycle.clear()
         runningPID = nil
         runningProcess = nil
     }

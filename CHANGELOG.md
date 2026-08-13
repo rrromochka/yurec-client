@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Bug Fixes
+
+- **Rapid session replacement could leave the UI disconnected while sing-box kept running** — process termination callbacks now carry a generation-based session identity. A delayed callback from a stopped session can no longer clear the state or networking setup of the replacement session, including when macOS reuses a PID or the app adopts an externally started sing-box process.
+
 ## [1.2.1] — 2026-06-06
 
 ### Improvements
