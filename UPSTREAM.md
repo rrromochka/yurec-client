@@ -38,8 +38,10 @@ Allowed statuses are `draft`, `tested`, `upstream-candidate`, `offered`,
 The route-selector patch is upstream-neutral: it reads standard sing-box
 `selector` outbounds, stores a choice per profile and selector tag, and applies
 that choice only to a temporary runtime config. Its isolated Swift tests and a
-Debug build pass. Manual network and UX acceptance remains a downstream release
-gate and does not imply that the patch has been offered upstream.
+Debug build pass. Manual downstream acceptance covers FI/US/KZ/RU-to-FI route
+switching and revocation of both inactive and actively selected routes without
+a manual TUN restart. This does not imply that the patch has been offered
+upstream.
 
 The sleep/wake patch is also upstream-neutral. It stops only the session owned
 by the app before sleep, waits for a stable physical network after wake and
@@ -51,7 +53,9 @@ The session-lifecycle patch is upstream-neutral as well. It assigns a
 generation-based token to every sing-box session and ignores delayed
 termination callbacks that no longer own the active session. Its isolated
 tests cover replacement sessions, PID reuse and duplicate callbacks; a Debug
-build passes. Manual downstream acceptance remains pending.
+build passes. Manual downstream acceptance on 2026-08-13 confirmed that a
+delayed callback no longer disconnects the replacement session after an active
+route is revoked and the subscription falls back to Finland.
 
 When upstream accepts a change, the downstream removes its duplicate patch
 during the next synchronization and uses the upstream implementation.

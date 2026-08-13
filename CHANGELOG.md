@@ -33,6 +33,11 @@
 
 ### Validation
 
+- Manual selector/lifecycle acceptance on 2026-08-13 revoked the actively
+  selected `Via Russia — Finland` route during a live TUN session. **Update**
+  notified the user, selected `Finland — Recommended`, kept the client
+  connected and retained a working Finland egress without a TUN toggle or app
+  restart.
 - Manual macOS acceptance on 2026-08-13 confirmed automatic recovery after a
   real sleep/wake cycle without toggling TUN. A subsequent live subscription
   update completed successfully, preserved the current route set and retained
