@@ -23,7 +23,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if !ProxyManager.shared.isRunning,
            UserDefaults.standard.bool(forKey: "autoConnectOnLaunch"),
            let profile = ProfileManager.shared.activeProfile {
-            ProxyManager.shared.start(profilePath: profile.path.path)
+            _ = ProxyManager.shared.start(profilePath: profile.path.path)
         }
 
         print("[YurecClient] applicationDidFinishLaunching: done")

@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Safety
+
+- **Explicit sing-box process ownership** — YurecClient no longer adopts or
+  terminates sessions started by another app. A connection attempt is rejected
+  while an external `sing-box` is running, and disconnect targets only the PID
+  tracked by the current app instance.
+
+### Tests
+
+- Added a standalone ownership-policy test covering idle start, duplicate start,
+  external-session refusal, and own-PID-only termination targets.
+
 ## [1.2.1] — 2026-06-06
 
 ### Improvements

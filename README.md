@@ -16,7 +16,7 @@ macOS menu bar приложение — графический фронтенд 
 - [Практическая настройка: ChatGPT, Claude, VS Code](#практическая-настройка)
 - [Sudoers и права](#sudoers-и-права)
 - [Автозапуск и авто-подключение](#автозапуск-и-авто-подключение)
-- [Обнаружение внешних процессов](#обнаружение-внешних-процессов)
+- [Владение процессом и совместимость клиентов](#владение-процессом-и-совместимость-клиентов)
 - [Логи](#логи)
 - [Структура проекта](#структура-проекта)
 
@@ -47,6 +47,7 @@ YurecClient
 │   ├── AppRoutingStore          — хранение списков приложений для маршрутизации
 │   ├── AppRoutingEntry          — модель одного приложения в списке маршрутизации
 │   ├── ConnectionMode           — enum: .tun / .socks5(port:)
+│   ├── ProcessOwnershipPolicy   — запрет запуска рядом с чужой сессией и границы остановки
 │   ├── SudoersManager           — управление правилом /etc/sudoers.d/yurec
 │   └── LaunchAtLoginManager     — управление автозапуском через ServiceManagement
 ├── Helpers/
@@ -75,7 +76,7 @@ TUN-режим создаёт виртуальный сетевой интерф
 StatusMenuController.connectTun()
   └── beginConnect(to: .tun, profile:)
         └── ProxyManager.start(profilePath:, mode: .tun)
-              1. killOrphanedSingBox()         — убить осиротевшие процессы sing-box
+              1. ProcessOwnershipPolicy        — отказать, если sing-box уже запущен
               2. ConfigTransformer.makeTunConfig() — убирает legacy inbound поля если есть, пишет temp файл
               3. SudoersManager.isInstalled()  — проверить наличие sudoers-правила
                   └── если нет → SudoersManager.install() → диалог пароля (один раз за всё время)
@@ -101,12 +102,10 @@ sudo -n /usr/sbin/networksetup -setdnsservers "Wi-Fi" 172.19.0.1
 
 ```
 ProxyManager.stop()
-  1. SIGKILL всем дочерним sing-box процессам (pgrepSingBox + forceKillPIDs)
-  2. killProcess() — terminate() + SIGTERM по PID
-  3. DNSHelper.resetDNS() — сбросить DNS обратно на "empty" (DHCP)
-  4. cleanupMode() — обнулить состояние
-  5. isRunning = false
-  6. startLaunchDetectionLoop() — начать следить за внешним запуском sing-box
+  1. killProcess() — остановить только запущенный этим экземпляром процесс
+  2. DNSHelper.resetDNS() — сбросить DNS обратно на "empty" (DHCP)
+  3. cleanupMode() — обнулить состояние
+  4. isRunning = false
 ```
 
 ---
@@ -134,7 +133,7 @@ sing-box запускается без TUN-интерфейса. Открыва�
 
 ```
 ProxyManager.start(profilePath:, mode: .socks5(port:))
-  1. killOrphanedSingBox()
+  1. ProcessOwnershipPolicy             — отказать, если sing-box уже запущен
   2. ensurePortFreeForSocks5(port)     — проверить, что порт свободен
   3. AppRoutingStore.effectiveProcessNames(for: profile)
                                        — получить список process_name (с хелперами)
@@ -176,18 +175,16 @@ ProxyManager.start(profilePath:, mode: .socks5(port:))
 
 ```
 ProxyManager.stop()
-  1. SIGKILL всем дочерним sing-box процессам
-  2. killProcess()
+  1. killProcess() — остановить только процесс текущего экземпляра
 
   Чистый SOCKS5:
-  3a. SystemProxyHelper.disableSOCKS5()  — снять системный прокси
+  2a. SystemProxyHelper.disableSOCKS5()  — снять системный прокси
 
   Гибридный TUN+SOCKS5:
-  3b. DNSHelper.resetDNS()               — сбросить DNS
+  2b. DNSHelper.resetDNS()               — сбросить DNS
 
-  4. cleanupMode() — удалить временный конфиг, обнулить socks5UsesTun
-  5. isRunning = false
-  6. startLaunchDetectionLoop()
+  3. cleanupMode() — удалить временный конфиг, обнулить socks5UsesTun
+  4. isRunning = false
 ```
 
 ---
@@ -416,17 +413,18 @@ macOS-приложения, особенно Electron-based (Claude, VS Code, Ch
 
 ---
 
-## Обнаружение внешних процессов
+## Владение процессом и совместимость клиентов
 
-Если sing-box был запущен не через YurecClient, клиент его всё равно подхватит.
+Каждый экземпляр YurecClient управляет только тем процессом `sing-box`, который
+запустил сам. Перед подключением приложение проверяет наличие других процессов
+`sing-box`. Если уже работает другая VPN-сессия, запуск отменяется с понятным
+сообщением; внешний процесс не усыновляется, не перенастраивается и не
+завершается.
 
-При запуске и после остановки `ProxyManager` запускает `startLaunchDetectionLoop()` — фоновый поток, который каждые 2 секунды ищет процесс `sing-box` через `sysctl(KERN_PROC_ALL)`. При обнаружении:
-
-1. Читает аргументы через `sysctl(KERN_PROCARGS2)` — ищет флаг `run` и путь к конфигу (`-c <path>`)
-2. Определяет активный профиль по пути
-3. Вызывает `adoptProcess(pid:profilePath:)` — устанавливает `isRunning = true`
-
-Для слежения за усыновлённым процессом используется **kqueue** (`EVFILT_PROC / NOTE_EXIT`). Fallback — polling раз в 2 секунды.
+При остановке приложение посылает сигнал только сохранённому PID собственной
+сессии. Это позволяет безопасно держать установленными несколько клиентов на
+базе sing-box: одновременно активной остаётся одна сессия, а попытка запуска
+второй не должна разрывать первую.
 
 ---
 

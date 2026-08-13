@@ -16,7 +16,7 @@ A macOS menu bar application — a graphical front-end for [sing-box](https://si
 - [Practical Setup: ChatGPT, Claude, VS Code](#practical-setup)
 - [Sudoers and Permissions](#sudoers-and-permissions)
 - [Launch at Login and Auto-connect](#launch-at-login-and-auto-connect)
-- [External Process Detection](#external-process-detection)
+- [Process Ownership and Client Coexistence](#process-ownership-and-client-coexistence)
 - [Logs](#logs)
 - [Project Structure](#project-structure)
 
@@ -46,6 +46,7 @@ YurecClient
 │   ├── AppRoutingStore          — storage of per-app routing lists
 │   ├── AppRoutingEntry          — model for a single app in the routing list
 │   ├── ConnectionMode           — enum: .tun / .socks5(port:)
+│   ├── ProcessOwnershipPolicy   — start preflight and process termination boundaries
 │   ├── SudoersManager           — manages the /etc/sudoers.d/yurec rule
 │   └── LaunchAtLoginManager     — launch-at-login via ServiceManagement
 ├── Helpers/
@@ -74,7 +75,7 @@ TUN mode creates a virtual network interface at the kernel level. All outgoing s
 StatusMenuController.connectTun()
   └── beginConnect(to: .tun, profile:)
         └── ProxyManager.start(profilePath:, mode: .tun)
-              1. killOrphanedSingBox()          — kill any orphaned sing-box processes
+              1. ProcessOwnershipPolicy         — refuse if sing-box is already running
               2. configPath = profilePath       — TUN uses the profile directly, no transformation
               3. SudoersManager.isInstalled()   — check whether the sudoers rule exists
                   └── if not → SudoersManager.install() → password dialog (once ever)
@@ -100,12 +101,10 @@ sudo -n /usr/sbin/networksetup -setdnsservers "Wi-Fi" 172.19.0.1
 
 ```
 ProxyManager.stop()
-  1. SIGKILL all sing-box child processes (pgrepSingBox + forceKillPIDs)
-  2. killProcess() — terminate() + SIGTERM by PID
-  3. DNSHelper.resetDNS() — reset DNS back to "empty" (DHCP)
-  4. cleanupMode() — clear state
-  5. isRunning = false
-  6. startLaunchDetectionLoop() — begin watching for sing-box to appear externally
+  1. killProcess() — stop only the process launched by this app instance
+  2. DNSHelper.resetDNS() — reset DNS back to "empty" (DHCP)
+  3. cleanupMode() — clear state
+  4. isRunning = false
 ```
 
 ---
@@ -133,7 +132,7 @@ This lets you route only specific apps (e.g. Claude, ChatGPT, VS Code) through t
 
 ```
 ProxyManager.start(profilePath:, mode: .socks5(port:))
-  1. killOrphanedSingBox()
+  1. ProcessOwnershipPolicy            — refuse if sing-box is already running
   2. ensurePortFreeForSocks5(port)     — verify the port is available
   3. AppRoutingStore.effectiveProcessNames(for: profile)
                                        — get process_name list (with helpers)
@@ -175,18 +174,16 @@ ProxyManager.start(profilePath:, mode: .socks5(port:))
 
 ```
 ProxyManager.stop()
-  1. SIGKILL all sing-box child processes
-  2. killProcess()
+  1. killProcess() — stop only the process owned by this app instance
 
   Plain SOCKS5:
-  3a. SystemProxyHelper.disableSOCKS5()  — remove the system proxy
+  2a. SystemProxyHelper.disableSOCKS5()  — remove the system proxy
 
   Hybrid TUN+SOCKS5:
-  3b. DNSHelper.resetDNS()               — reset DNS
+  2b. DNSHelper.resetDNS()               — reset DNS
 
-  4. cleanupMode() — delete temp config, reset socks5UsesTun flag
-  5. isRunning = false
-  6. startLaunchDetectionLoop()
+  3. cleanupMode() — delete temp config, reset socks5UsesTun flag
+  4. isRunning = false
 ```
 
 ---
@@ -414,17 +411,16 @@ The rule is validated via `sudo -n -l <path>` before every start. If the binary 
 
 ---
 
-## External Process Detection
+## Process Ownership and Client Coexistence
 
-If sing-box was started outside YurecClient (manually in Terminal, by another app), the client will still adopt it.
+Each YurecClient instance manages only the `sing-box` process that it launched.
+Before connecting, the app checks for other `sing-box` processes. If another VPN
+session is already active, the start is rejected with a clear message; the
+external process is never adopted, reconfigured, or terminated.
 
-On launch and after every stop, `ProxyManager` starts `startLaunchDetectionLoop()` — a background thread that scans for a `sing-box` process every 2 seconds using `sysctl(KERN_PROC_ALL)`. When found:
-
-1. Reads the process arguments via `sysctl(KERN_PROCARGS2)` — looks for the `run` flag and config path (`-c <path>`)
-2. Identifies the active profile from the config path
-3. Calls `adoptProcess(pid:profilePath:)` — sets `isRunning = true` and begins watching
-
-For adopted processes (no `Process` object, no `terminationHandler`), **kqueue** is used (`EVFILT_PROC / NOTE_EXIT`). Falls back to polling every 2 seconds if kqueue is unavailable.
+On disconnect, the app signals only the stored PID of its own session. Multiple
+sing-box-based clients may therefore remain installed safely: one session stays
+active, while a second client's connection attempt must leave it untouched.
 
 ---
 

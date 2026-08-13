@@ -9,6 +9,7 @@ class ProxyManager: ObservableObject {
         didSet { print("[YurecClient] isRunning changed: \(oldValue) → \(isRunning)") }
     }
     @Published var currentMode: ConnectionMode?
+    @Published private(set) var lastStartFailure: String?
 
     private var runningPID: Int32?
     private var runningProcess: Process?  // strong ref so process isn't deallocated
@@ -99,13 +100,26 @@ class ProxyManager: ObservableObject {
 
     // MARK: - Process Lifecycle
 
-    func start(profilePath: String, mode: ConnectionMode = .tun) {
-        guard !isRunning else { return }
-        stopLaunchDetectionLoop()
-
-        // Kill any orphaned sing-box process that may be running but not tracked by this app
-        // (e.g. a previous session's process that left isRunning=false)
-        killOrphanedSingBox(forMode: mode)
+    @discardableResult
+    func start(profilePath: String, mode: ConnectionMode = .tun) -> Bool {
+        lastStartFailure = nil
+        guard !isRunning else {
+            return failStart("YurecClient already owns a running sing-box session.")
+        }
+        switch ProcessOwnershipPolicy.startDecision(
+            ownedPID: runningPID,
+            discoveredPIDs: pgrepSingBox()
+        ) {
+        case .allowed:
+            break
+        case .alreadyOwnsProcess:
+            return failStart("YurecClient already owns a running sing-box session.")
+        case .externalProcessesRunning:
+            return failStart(
+                "Another sing-box session is already running. Disconnect it before connecting "
+                    + "YurecClient. No external process was stopped."
+            )
+        }
 
         // Resolve the actual config path
         let configPath: String
@@ -122,17 +136,14 @@ class ProxyManager: ObservableObject {
             }
 
         case .socks5(let port):
-            // Second-pass port check: even if killOrphanedSingBox ran, something may still
-            // hold the port (orphan that pgrep missed, or an unrelated process).
+            // A local listener may belong to another client or unrelated process.
             if !ensurePortFreeForSocks5(port) {
-                // Port held by a non-sing-box process — already logged, abort cleanly.
-                return
+                return failStart("SOCKS5 port \(port) is already in use. Choose another port in Settings.")
             }
             let activeProfile = ProfileManager.shared.profiles.first { $0.path.path == profilePath }
             let routedNames = AppRoutingStore.shared.effectiveProcessNames(for: activeProfile)
             guard let tmpURL = try? ConfigTransformer.makeSocks5Config(from: profilePath, port: port, routedProcessNames: routedNames) else {
-                print("[YurecClient] start: failed to transform config for SOCKS5")
-                return
+                return failStart("The selected profile could not be transformed for SOCKS5 mode.")
             }
             tempConfigURL = tmpURL
             configPath = tmpURL.path
@@ -146,8 +157,7 @@ class ProxyManager: ObservableObject {
                 || !SudoersManager.isInstalled(for: "/usr/sbin/networksetup")
             if needsInstall {
                 guard SudoersManager.install(binaryPath: binaryPath) else {
-                    print("[YurecClient] start: sudoers install failed, aborting")
-                    return
+                    return failStart("Administrator access could not be configured.")
                 }
             }
         }
@@ -164,8 +174,7 @@ class ProxyManager: ObservableObject {
         // forwarder takes over writes. The forwarder will initialise its byte counter
         // from the current file size, so the separator counts toward the limit.
         guard let headerHandle = FileHandle(forWritingAtPath: logURL.path) else {
-            print("[YurecClient] start: cannot open log file at \(logURL.path)")
-            return
+            return failStart("The application log file could not be opened.")
         }
         headerHandle.seekToEndOfFile()
         headerHandle.write(Data("\n\n--- YurecClient: starting \(mode) @ \(Date()) ---\n\n".utf8))
@@ -192,8 +201,7 @@ class ProxyManager: ObservableObject {
         task.standardError = stderrPipe
 
         guard (try? task.run()) != nil else {
-            print("[YurecClient] start: failed to launch process")
-            return
+            return failStart("sing-box could not be launched.")
         }
 
         // Attach the forwarder after a successful launch.
@@ -236,18 +244,13 @@ class ProxyManager: ObservableObject {
                 SystemProxyHelper.enableSOCKS5(port: port)
             }
         }
+        return true
     }
 
     func stop() {
         guard isRunning else { return }
-        stopKqueueWatch()
-        // SIGKILL any root sing-box child processes. Both TUN and SOCKS5 now run as
-        // root, so we kill them the same way regardless of mode.
-        let sbPids = pgrepSingBox()
-        if !sbPids.isEmpty {
-            print("[YurecClient] stop: SIGKILL sing-box child PIDs=\(sbPids)")
-            forceKillPIDs(sbPids, label: "stop")
-        }
+        // Stop only the process launched and tracked by this application.
+        // Never enumerate and terminate every sing-box process on the host.
         killProcess()
         switch currentMode {
         case .tun:
@@ -259,9 +262,6 @@ class ProxyManager: ObservableObject {
         }
         cleanupMode()
         isRunning = false
-        // Start watching for sing-box to appear again (user may start it externally).
-        // If start() is called right after (mode-switch), it cancels this loop immediately.
-        startLaunchDetectionLoop()
     }
 
     private func cleanupMode() {
@@ -283,7 +283,7 @@ class ProxyManager: ObservableObject {
             proc.terminate()
         }
         // Also kill by PID in case proc.terminate() didn't reach the root child
-        if let pid = runningPID {
+        for pid in ProcessOwnershipPolicy.terminationTargets(ownedPID: runningPID) {
             if kill(pid, SIGTERM) != 0 && errno == EPERM {
                 sudoKill(pid: pid)
             }
@@ -303,42 +303,6 @@ class ProxyManager: ObservableObject {
         task.waitUntilExit()
         let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return out.split(separator: "\n").compactMap { Int32($0.trimmingCharacters(in: .whitespaces)) }
-    }
-
-    /// Kills any running sing-box processes (orphaned from a previous session) and waits
-    /// until they are gone before returning. Uses SIGKILL to avoid leaving TIME_WAIT
-    /// entries on the port — critical so the next start() can bind immediately.
-    private func killOrphanedSingBox(forMode mode: ConnectionMode? = nil) {
-        let pids = pgrepSingBox()
-        guard !pids.isEmpty else { return }
-        print("[YurecClient] killOrphanedSingBox: found PIDs=\(pids), SIGKILL")
-        forceKillPIDs(pids, label: "killOrphanedSingBox")
-    }
-
-    /// Sends SIGKILL to each PID (using sudo for root processes), then polls until
-    /// all are confirmed dead (max 2 s). SIGKILL causes the kernel to RST open TCP
-    /// connections — no TIME_WAIT, so the port is usable immediately after return.
-    private func forceKillPIDs(_ pids: [Int32], label: String) {
-        for pid in pids {
-            if kill(pid, SIGKILL) != 0 && errno == EPERM {
-                // Root process — need sudo
-                let t = Process()
-                t.executableURL = URL(fileURLWithPath: "/bin/sh")
-                t.arguments = ["-c", "sudo -n /bin/kill -9 \(pid) 2>/dev/null"]
-                t.standardOutput = Pipe(); t.standardError = Pipe()
-                try? t.run(); t.waitUntilExit()
-            }
-        }
-        // Poll until all are gone (max 2 s — SIGKILL is near-instant)
-        for i in 1...20 {
-            Thread.sleep(forTimeInterval: 0.1)
-            let alive = pids.filter { kill($0, 0) == 0 || errno == EPERM }
-            if alive.isEmpty {
-                print("[YurecClient] \(label): all PIDs gone after \(i * 100)ms")
-                return
-            }
-        }
-        print("[YurecClient] \(label): some PIDs still alive after 2s (unexpected)")
     }
 
     /// Returns true if something is actively listening on 127.0.0.1:port.
@@ -382,22 +346,17 @@ class ProxyManager: ObservableObject {
     ///
     /// Decision tree:
     ///   1. No listener detected (connect → ECONNREFUSED) : proceed immediately.
-    ///   2. Listener found, pgrep finds sing-box           : SIGKILL it, proceed.
-    ///   3. Listener found, pgrep finds nothing            :
-    ///        a. lsof identifies a non-sing-box process    → warn + abort.
-    ///        b. lsof finds nothing (root process?)        → warn + abort (unknown holder).
+    ///   2. Listener found                                  : diagnose + abort.
     ///
-    /// Returns false only when a foreign listener is detected and we cannot remove it.
+    /// YurecClient never terminates the process that owns the port.
     @discardableResult
     private func ensurePortFreeForSocks5(_ port: Int) -> Bool {
         guard hasListenerOnPort(port) else { return true }
 
-        // Something is listening. Is it sing-box?
         let singBoxPIDs = pgrepSingBox()
         if !singBoxPIDs.isEmpty {
-            print("[YurecClient] ensurePortFreeForSocks5: port \(port) held by sing-box PIDs=\(singBoxPIDs), SIGKILL")
-            forceKillPIDs(singBoxPIDs, label: "ensurePortFreeForSocks5")
-            return true
+            print("[YurecClient] ensurePortFreeForSocks5: port \(port) is held by sing-box PIDs=\(singBoxPIDs); refusing to stop an external session")
+            return false
         }
 
         // A non-sing-box process is listening. Log and abort.
@@ -431,8 +390,8 @@ class ProxyManager: ObservableObject {
 
     private func sudoKill(pid: Int32) {
         let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/sh")
-        task.arguments = ["-c", "sudo -n /bin/kill -TERM \(pid) 2>/dev/null"]
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
+        task.arguments = ["-n", "/bin/kill", "-TERM", String(pid)]
         task.standardOutput = Pipe()
         task.standardError = Pipe()
         try? task.run()
@@ -454,246 +413,20 @@ class ProxyManager: ObservableObject {
         }
         cleanupMode()
         isRunning = false
-        startLaunchDetectionLoop()
-    }
-
-    /// Adopts a sing-box process found externally (detection loop / app launch).
-    /// We don't have a Process reference so we poll via kqueue.
-    private func adoptProcess(pid: Int32, profilePath: String?) {
-        stopLaunchDetectionLoop()
-        runningPID = pid
-        isRunning = true
-        if let path = profilePath {
-            ProfileManager.shared.activateProfileByPath(path)
-        }
-        // Watch the adopted process with kqueue (we have no Process ref for terminationHandler)
-        startKqueueWatchAsync(pid: pid)
-    }
-
-    // MARK: - kqueue watch for adopted processes
-
-    private var watchingProcess = false
-
-    private func startKqueueWatchAsync(pid: Int32) {
-        watchingProcess = true
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            guard let self else { return }
-            if self.startKqueueWatch(pid: pid) {
-                print("[YurecClient] watching adopted PID \(pid) via kqueue")
-            } else {
-                print("[YurecClient] kqueue unavailable for PID \(pid), falling back to polling")
-                self.runPollingLoop(pid: pid)
-            }
-        }
-    }
-
-    private func stopKqueueWatch() {
-        watchingProcess = false
-    }
-
-    /// Blocks a background thread until the process exits (kqueue EVFILT_PROC).
-    /// Returns true if we successfully registered; false if no access (use polling instead).
-    private func startKqueueWatch(pid: Int32) -> Bool {
-        let kq = kqueue()
-        guard kq != -1 else { return false }
-        defer { close(kq) }
-
-        var change = kevent(
-            ident: UInt(pid),
-            filter: Int16(EVFILT_PROC),
-            flags: UInt16(EV_ADD | EV_ONESHOT),
-            fflags: UInt32(NOTE_EXIT),
-            data: 0,
-            udata: nil
-        )
-        guard kevent(kq, &change, 1, nil, 0, nil) == 0 else { return false }
-
-        var event = kevent()
-        while watchingProcess {
-            var timeout = timespec(tv_sec: 1, tv_nsec: 0)
-            let n = kevent(kq, nil, 0, &event, 1, &timeout)
-            if n > 0 {
-                print("[YurecClient] kqueue: adopted PID \(pid) exited")
-                if watchingProcess {
-                    DispatchQueue.main.async { [weak self] in self?.handleProcessTermination() }
-                }
-                return true
-            }
-        }
-        return true
-    }
-
-    private func runPollingLoop(pid: Int32) {
-        while watchingProcess {
-            Thread.sleep(forTimeInterval: 2.0)
-            guard watchingProcess else { break }
-            if kill(pid, 0) != 0 && errno == ESRCH {
-                print("[YurecClient] polling: adopted PID \(pid) no longer exists")
-                DispatchQueue.main.async { [weak self] in self?.handleProcessTermination() }
-                return
-            }
-        }
     }
 
     // MARK: - Process Detection
 
-    /// При старте: если sing-box уже запущен — подхватываем, иначе — начинаем следить за запуском.
+    /// Reports an existing session without adopting or modifying it.
+    /// A system VPN session must be disconnected explicitly by its owner.
     func detectExistingProcess() {
         guard !isRunning else { return }
-        print("[YurecClient] detectExistingProcess: start")
-
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            guard let self else { return }
-
-            if let pid = self.findSingBoxPID() {
-                let profilePath = self.readProfilePath(pid: pid)
-                print("[YurecClient] detectExistingProcess: found PID=\(pid) profile=\(profilePath ?? "unknown")")
-                DispatchQueue.main.async { self.adoptProcess(pid: pid, profilePath: profilePath) }
-            } else {
-                print("[YurecClient] detectExistingProcess: not running, watching for launch...")
-                self.startLaunchDetectionLoop()
-            }
+        let pids = pgrepSingBox()
+        if pids.isEmpty {
+            print("[YurecClient] detectExistingProcess: no external session")
+        } else {
+            print("[YurecClient] detectExistingProcess: external sing-box PIDs=\(pids); not adopting")
         }
-    }
-
-    // MARK: - Launch Detection
-
-    private var detectingLaunch = false
-
-    /// Polling-петля: ждём когда sing-box появится в системе (запущен вручную или другим способом).
-    /// Работает только когда isRunning = false. Останавливается сразу при обнаружении.
-    private func startLaunchDetectionLoop() {
-        guard !detectingLaunch else { return }
-        detectingLaunch = true
-        print("[YurecClient] launch detection: watching for sing-box to start...")
-
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            var checkCount = 0
-            while let self, self.detectingLaunch, !self.isRunning {
-                Thread.sleep(forTimeInterval: 2.0)
-                guard self.detectingLaunch, !self.isRunning else { break }
-                checkCount += 1
-
-                if let pid = self.findSingBoxPID(silent: true) {
-                    let profilePath = self.readProfilePath(pid: pid)
-                    print("[YurecClient] launch detection: sing-box appeared, PID=\(pid) profile=\(profilePath ?? "unknown")")
-                    DispatchQueue.main.async { self.adoptProcess(pid: pid, profilePath: profilePath) }
-                    return
-                }
-
-                // Log only on first check and then every 30 seconds to avoid spam
-                if checkCount == 1 || checkCount % 15 == 0 {
-                    print("[YurecClient] launch detection: waiting... (\(checkCount * 2)s)")
-                }
-            }
-            print("[YurecClient] launch detection: stopped")
-        }
-    }
-
-    private func stopLaunchDetectionLoop() {
-        detectingLaunch = false
-    }
-
-    /// Возвращает PID процесса sing-box через sysctl (без fork/exec).
-    /// Сканирует таблицу процессов ядра, ищет p_comm == "sing-box",
-    /// затем проверяет аргументы (KERN_PROCARGS2) на наличие "run".
-    /// `silent`: suppress the "not found" log line (used in tight polling loops).
-    private func findSingBoxPID(silent: Bool = false) -> Int32? {
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
-        var size = 0
-        // Первый вызов — узнаём нужный размер буфера
-        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else {
-            print("[YurecClient] sysctl: size query failed, errno=\(errno)")
-            return nil
-        }
-
-        let count = size / MemoryLayout<kinfo_proc>.stride
-        var procs = [kinfo_proc](repeating: kinfo_proc(), count: count)
-        // Второй вызов — заполняем буфер (размер мог чуть вырасти)
-        var actualSize = size
-        guard sysctl(&mib, 4, &procs, &actualSize, nil, 0) == 0 else {
-            print("[YurecClient] sysctl: proc list fetch failed, errno=\(errno)")
-            return nil
-        }
-
-        let actualCount = actualSize / MemoryLayout<kinfo_proc>.stride
-
-        // kp_proc.p_comm — массив CChar, максимум MAXCOMLEN (16) символов
-        var candidates: [Int32] = []
-        var singLike: [String] = []   // для диагностики — имена близкие к "sing"
-        for i in 0 ..< actualCount {
-            let name = withUnsafeBytes(of: procs[i].kp_proc.p_comm) { raw -> String in
-                let ptr = raw.baseAddress!.assumingMemoryBound(to: CChar.self)
-                return String(cString: ptr)
-            }
-            if name == "sing-box" {
-                candidates.append(procs[i].kp_proc.p_pid)
-            } else if name.hasPrefix("sing") || name.contains("box") {
-                singLike.append("\(name)[\(procs[i].kp_proc.p_pid)]")
-            }
-        }
-
-        if candidates.isEmpty {
-            if !silent {
-                let hint = singLike.isEmpty ? "no similar names found" : "similar: \(singLike)"
-                print("[YurecClient] sysctl: sing-box not found (\(actualCount) procs scanned, \(hint))")
-            }
-            return nil
-        }
-        print("[YurecClient] sysctl: sing-box candidates: \(candidates)")
-
-        // Если несколько PIDs — фильтруем по наличию "run" в аргументах,
-        // чтобы не подхватить sing-box version / sing-box help и т.п.
-        let running = candidates.filter { hasRunArg(pid: $0) }
-        let result = (running.isEmpty ? candidates : running).max()
-        print("[YurecClient] sysctl: selected PID \(result as Any)")
-        return result
-    }
-
-    /// Возвращает путь к конфигу из аргументов процесса через KERN_PROCARGS2.
-    private func readProfilePath(pid: Int32) -> String? {
-        guard let args = readProcArgs(pid: pid) else { return nil }
-        print("[YurecClient] KERN_PROCARGS2 args for PID \(pid): \(args)")
-        guard let idx = args.firstIndex(of: "-c"), idx + 1 < args.count else { return nil }
-        return args[idx + 1]
-    }
-
-    /// true если аргументы процесса содержат "run" (sing-box run -c …)
-    private func hasRunArg(pid: Int32) -> Bool {
-        readProcArgs(pid: pid)?.contains("run") ?? false
-    }
-
-    /// Читает argv процесса через sysctl KERN_PROCARGS2.
-    /// Формат буфера: Int32 argc | exec_path\0 | padding\0… | arg0\0 | arg1\0 | …
-    private func readProcArgs(pid: Int32) -> [String]? {
-        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
-        var size = 0
-        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return nil }
-
-        var buf = [UInt8](repeating: 0, count: size)
-        guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0 else { return nil }
-
-        // Первые 4 байта — argc (Int32 little-endian)
-        guard size >= 4 else { return nil }
-        let argc = Int(buf[0]) | Int(buf[1]) << 8 | Int(buf[2]) << 16 | Int(buf[3]) << 24
-
-        // Пропускаем exec_path (строка до первого \0) и padding (нули до следующей строки)
-        var offset = 4
-        while offset < size, buf[offset] != 0 { offset += 1 } // конец exec_path
-        while offset < size, buf[offset] == 0 { offset += 1 } // паддинг
-
-        // Читаем argc аргументов
-        var args: [String] = []
-        for _ in 0 ..< argc {
-            guard offset < size else { break }
-            var end = offset
-            while end < size, buf[end] != 0 { end += 1 }
-            if let s = String(bytes: buf[offset ..< end], encoding: .utf8) {
-                args.append(s)
-            }
-            offset = end + 1
-        }
-        return args
     }
 
     // MARK: - Signal Handlers
@@ -708,12 +441,10 @@ class ProxyManager: ObservableObject {
     }
 
     func forceCleanup() {
-        stopLaunchDetectionLoop()
-        stopKqueueWatch()
         logForwarder?.stop()
         logForwarder = nil
         if let proc = runningProcess, proc.isRunning { proc.terminate() }
-        if let pid = runningPID {
+        for pid in ProcessOwnershipPolicy.terminationTargets(ownedPID: runningPID) {
             if kill(pid, SIGTERM) != 0 && errno == EPERM {
                 sudoKill(pid: pid)
             }
@@ -769,9 +500,11 @@ class ProxyManager: ObservableObject {
 
     // MARK: - Helpers
 
-    /// Single-quotes a string for safe use in a POSIX shell command.
-    private func shellQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    @discardableResult
+    private func failStart(_ message: String) -> Bool {
+        lastStartFailure = message
+        print("[YurecClient] start blocked: \(message)")
+        return false
     }
 }
 

@@ -58,6 +58,11 @@ class StatusMenuController: NSObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.buildMenu() }
             .store(in: &cancellables)
+
+        proxyManager.$lastStartFailure
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.buildMenu() }
+            .store(in: &cancellables)
     }
 
     // MARK: - Icon state machine
@@ -284,10 +289,11 @@ class StatusMenuController: NSObject {
     private func beginConnect(to mode: ConnectionMode, profile: Profile) {
         pendingMode = mode
         applyIconState(derivedState())
-        proxyManager.start(profilePath: profile.path.path, mode: mode)
-        if !proxyManager.isRunning {
+        let started = proxyManager.start(profilePath: profile.path.path, mode: mode)
+        if !started {
             pendingMode = nil
             applyIconState(derivedState())
+            showStartFailureAlert()
         }
     }
 
@@ -313,6 +319,16 @@ class StatusMenuController: NSObject {
         let alert = NSAlert()
         alert.messageText = "No Profile Selected"
         alert.informativeText = "Please create or select a profile in Settings before enabling."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func showStartFailureAlert() {
+        guard let message = proxyManager.lastStartFailure else { return }
+        let alert = NSAlert()
+        alert.messageText = "Connection Not Started"
+        alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         alert.runModal()

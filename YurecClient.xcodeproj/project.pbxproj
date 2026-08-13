@@ -28,6 +28,7 @@
 		EE0001000000000000000002 /* AppRoutingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0002000000000000000002 /* AppRoutingStore.swift */; };
 		EE0001000000000000000003 /* AppRoutingListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0002000000000000000003 /* AppRoutingListView.swift */; };
 		FF0001000000000000000001 /* SystemProxyHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF0002000000000000000001 /* SystemProxyHelper.swift */; };
+		AB0001000000000000000001 /* ProcessOwnershipPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0002000000000000000001 /* ProcessOwnershipPolicy.swift */; };
 		AA0001000000000000000001 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0002000000000000000001 /* SystemConfiguration.framework */; };
 		AA0001000000000000000002 /* ServiceManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0002000000000000000002 /* ServiceManagement.framework */; };
 		AA0001000000000000000003 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0002000000000000000003 /* Security.framework */; };
@@ -57,6 +58,7 @@
 		EE0002000000000000000002 /* AppRoutingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRoutingStore.swift; sourceTree = "<group>"; };
 		EE0002000000000000000003 /* AppRoutingListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRoutingListView.swift; sourceTree = "<group>"; };
 		FF0002000000000000000001 /* SystemProxyHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemProxyHelper.swift; sourceTree = "<group>"; };
+		AB0002000000000000000001 /* ProcessOwnershipPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessOwnershipPolicy.swift; sourceTree = "<group>"; };
 		6321F2F75A3744469F6183E0 /* YurecClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = YurecClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0002000000000000000001 /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
 		AA0002000000000000000002 /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
@@ -133,6 +135,7 @@
 				CC0002000000000000000003 /* SubscriptionParser.swift */,
 				EE0002000000000000000001 /* AppRoutingEntry.swift */,
 				EE0002000000000000000002 /* AppRoutingStore.swift */,
+				AB0002000000000000000001 /* ProcessOwnershipPolicy.swift */,
 			);
 			path = Managers;
 			sourceTree = "<group>";
@@ -258,6 +261,7 @@
 				EE0001000000000000000002 /* AppRoutingStore.swift in Sources */,
 				EE0001000000000000000003 /* AppRoutingListView.swift in Sources */,
 				FF0001000000000000000001 /* SystemProxyHelper.swift in Sources */,
+				AB0001000000000000000001 /* ProcessOwnershipPolicy.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
